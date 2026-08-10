@@ -168,14 +168,85 @@ function sqlHits(field) {
   return hits;
 }
 
+// Best-effort Deluge module scoping for functionHits, so a Contacts-scoped
+// First_Name reference doesn't bleed into the Leads audit just because both
+// modules have a same-named field. Only field accesses through a variable
+// Deluge itself ties to an explicit module can be confidently attributed:
+// a getRecordById/getRecords/searchRecords/getRelatedRecords fetch, the
+// var = Module[criteria] shorthand, a map later passed to createRecord/
+// updateRecord, a raw invokeurl REST call with the module in the URL path
+// (.../crm/v8/Deals/...), or a variable unwrapped from one of those via the
+// Zoho REST envelope's .get("data"). Everything else (bare input.Field,
+// record.get("Field"), or any variable we can't resolve) stays ambiguous
+// and keeps today's module-agnostic behavior; this only ever REMOVES false
+// positives, it never drops a real hit we can't disprove. The shorthand and
+// invokeurl patterns are gated on matching one of this org's actual module
+// api_names (via S.modules), specifically to avoid mistaking ordinary
+// list/map indexing (someList[0]) or an unrelated URL for a module
+// reference.
+function extractDelugeModuleVars(code) {
+  var vars = {};
+  var knownModules = {};
+  S.modules.forEach(function (m) { knownModules[norm(m.api_name)] = m.api_name; });
+  var fetchRe = /(\w+)\s*=\s*zoho\.crm\.(?:getRecordById|getRecords|searchRecords|getRelatedRecords)\s*\(\s*["']([A-Za-z0-9_]+)["']/gi;
+  var writeRe = /zoho\.crm\.(?:createRecord|updateRecord)\s*\(\s*["']([A-Za-z0-9_]+)["']\s*,\s*(?:\S+\s*,\s*)?(\w+)\s*\)/gi;
+  var shorthandRe = /(\w+)\s*=\s*([A-Za-z][A-Za-z0-9_]*)\s*\[/g;
+  // Raw REST calls via invokeurl embed the module directly in the URL path
+  // (/crm/v{n}/Module[/id]), a very common alternative to the zoho.crm.*
+  // built-ins, especially in older/hand-written functions.
+  var invokeUrlRe = /(\w+)\s*=\s*invokeurl\s*\[[\s\S]{0,300}?url\s*:\s*["'][^"']*\/crm\/v\d+\/([A-Za-z0-9_]+)/gi;
+  // The Zoho REST envelope {"data": [...]} is almost always unwrapped into a
+  // second variable before fields are read off it - propagate the tag from
+  // the envelope variable to whatever it's unwrapped into.
+  var unwrapRe = /(\w+)\s*=\s*(\w+)\s*\.\s*get\(\s*["']data["']\s*\)/gi;
+  var m;
+  while ((m = fetchRe.exec(code))) vars[m[1]] = knownModules[norm(m[2])] || m[2];
+  while ((m = writeRe.exec(code))) vars[m[2]] = knownModules[norm(m[1])] || m[1];
+  while ((m = shorthandRe.exec(code))) {
+    var known = knownModules[norm(m[2])];
+    if (known && !vars[m[1]]) vars[m[1]] = known;
+  }
+  while ((m = invokeUrlRe.exec(code))) {
+    var knownUrl = knownModules[norm(m[2])];
+    if (knownUrl) vars[m[1]] = knownUrl;
+  }
+  while ((m = unwrapRe.exec(code))) {
+    if (vars[m[2]] && !vars[m[1]]) vars[m[1]] = vars[m[2]];
+  }
+  return vars;
+}
+function delugeModuleVarsFor(fn) {
+  if (!fn._moduleVars) fn._moduleVars = extractDelugeModuleVars(fn.code);
+  return fn._moduleVars;
+}
+// True unless every variable-qualified access of this field (var.get(...),
+// var.put(...), or the var.Field shorthand) resolves to a module other than
+// currentModule - i.e. false only when we can positively show the
+// reference belongs elsewhere. A bare/unqualified access, or one through a
+// variable we couldn't resolve, always keeps this true (see comment above).
+function functionReferencesFieldForModule(code, apiName, currentModule, moduleVars) {
+  var qualifiedRe = new RegExp("([A-Za-z_]\\w*)\\s*\\.\\s*(?:get\\(\\s*[\"']" + escRe(apiName) + "[\"']\\s*\\)|" +
+    "put\\(\\s*[\"']" + escRe(apiName) + "[\"']|" + escRe(apiName) + "\\b)", "g");
+  var sawQualified = false, sawOtherModuleOnly = true;
+  var m;
+  while ((m = qualifiedRe.exec(code))) {
+    sawQualified = true;
+    var mod = moduleVars[m[1]];
+    if (!mod || mod === currentModule) sawOtherModuleOnly = false;
+  }
+  return !(sawQualified && sawOtherModuleOnly);
+}
+
 // Deluge scripts reference fields by API name (record.get("Stage"),
 // input.Stage, criteria strings), so functions are searched on API name only.
 function functionHits(field) {
   var hits = [];
   if (!field.api_name || field.api_name.length < 3) return hits;
   var re = new RegExp("(^|[^A-Za-z0-9_])" + escRe(field.api_name) + "([^A-Za-z0-9_]|$)", "i");
+  var currentModule = $("module-pick").value;
   S.functions.forEach(function (fn) {
     if (!re.test(fn.code)) return;
+    if (!functionReferencesFieldForModule(fn.code, field.api_name, currentModule, delugeModuleVarsFor(fn))) return;
     var count = (fn.code.match(new RegExp(escRe(field.api_name), "gi")) || []).length;
     var m = fn.code.match(new RegExp(".{0,60}" + escRe(field.api_name) + ".{0,60}", "i"));
     hits.push({ name: fn.name, count: count, snippet: m ? m[0].replace(/\s+/g, " ") : "" });
