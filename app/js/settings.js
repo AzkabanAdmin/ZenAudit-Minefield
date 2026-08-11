@@ -2,13 +2,19 @@
 
 // Persisted settings (connection names, data center, theme), theme toggle,
 // and small setup-card UI toggles.
+//
+// Scan-source toggles are deliberately NOT persisted: which sources you want
+// is a per-audit decision, not a preference, and every source starts from the
+// checkbox defaults in widget.html on each load. Books used to be the lone
+// exception, which made it silently sticky - it read as "on by default" to
+// anyone who had ever ticked it once.
 
 var SETTINGS_KEY = "fieldcheck.settings.v1";
 function saveSettings() {
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({
       conn: $("conn-analytics").value, crmConn: $("conn-crm").value, booksConn: $("conn-books").value,
-      includeBooks: $("include-books").checked, dc: $("dc").value, theme: THEME
+      dc: $("dc").value, theme: THEME
     }));
   } catch (e) { /* best-effort */ }
 }
@@ -20,10 +26,6 @@ function restoreSettings() {
     if (s.conn) $("conn-analytics").value = s.conn;
     if (s.crmConn) $("conn-crm").value = s.crmConn;
     if (s.booksConn) $("conn-books").value = s.booksConn;
-    if (s.includeBooks) {
-      $("include-books").checked = true;
-      $("include-books").closest(".src-tile").classList.add("on");
-    }
     if (s.dc) $("dc").value = s.dc;
     applyTheme(THEME_META.hasOwnProperty(s.theme) ? s.theme : "dark");
   } catch (e) { /* ignore bad cache */ }

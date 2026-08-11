@@ -10,7 +10,9 @@ ZOHO.embeddedApp.on("PageLoad", function () {
   loadModules();
   showLoader(bootLine);
   loadOrgs().then(endBoot, endBoot); // errors surface in the setup card
-  if ($("include-books").checked) loadBooksOrgs();
+  // Books orgs load when the source is switched on (see its onchange in
+  // scan.js), not at boot: the toggle always starts off, so there's nothing
+  // to pre-load and no reason to spend a call on an org that may not use it.
   // org zgid powers the deep link to the Functions settings page
   ZOHO.CRM.CONFIG.getOrgInfo().then(function (resp) {
     try { S.crmZgid = resp.org[0].zgid || null; } catch (e) { /* generic link fallback */ }
