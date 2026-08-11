@@ -11,7 +11,6 @@ ZOHO.embeddedApp.on("PageLoad", function () {
   showLoader(bootLine);
   loadOrgs().then(endBoot, endBoot); // errors surface in the setup card
   if ($("include-books").checked) loadBooksOrgs();
-  if ($("include-creator").checked) loadCreatorApps();
   // org zgid powers the deep link to the Functions settings page
   ZOHO.CRM.CONFIG.getOrgInfo().then(function (resp) {
     try { S.crmZgid = resp.org[0].zgid || null; } catch (e) { /* generic link fallback */ }

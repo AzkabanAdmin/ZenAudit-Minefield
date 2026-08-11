@@ -8,8 +8,7 @@ function saveSettings() {
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({
       conn: $("conn-analytics").value, crmConn: $("conn-crm").value, booksConn: $("conn-books").value,
-      creatorConn: $("conn-creator").value, includeBooks: $("include-books").checked,
-      includeCreator: $("include-creator").checked, dc: $("dc").value, theme: THEME
+      includeBooks: $("include-books").checked, dc: $("dc").value, theme: THEME
     }));
   } catch (e) { /* best-effort */ }
 }
@@ -21,14 +20,9 @@ function restoreSettings() {
     if (s.conn) $("conn-analytics").value = s.conn;
     if (s.crmConn) $("conn-crm").value = s.crmConn;
     if (s.booksConn) $("conn-books").value = s.booksConn;
-    if (s.creatorConn) $("conn-creator").value = s.creatorConn;
     if (s.includeBooks) {
       $("include-books").checked = true;
       $("include-books").closest(".src-tile").classList.add("on");
-    }
-    if (s.includeCreator) {
-      $("include-creator").checked = true;
-      $("include-creator").closest(".src-tile").classList.add("on");
     }
     if (s.dc) $("dc").value = s.dc;
     applyTheme(THEME_META.hasOwnProperty(s.theme) ? s.theme : "dark");
@@ -42,11 +36,6 @@ $("conn-books").onchange = function () {
   saveSettings();
   S.booksOrgId = null;
   if (S.sdkReady && $("include-books").checked) loadBooksOrgs();
-};
-$("conn-creator").onchange = function () {
-  saveSettings();
-  S.creatorApps = [];
-  if (S.sdkReady && $("include-creator").checked) loadCreatorApps();
 };
 $("dc").onchange = function () { saveSettings(); if (S.sdkReady) loadOrgs(); };
 

@@ -27,8 +27,6 @@ function iconFor(vtype) {
     return svgIcon("<rect x='2' y='2' width='7' height='7' rx='1.5' fill='#e4576a'/><rect x='11' y='2' width='7' height='7' rx='1.5' fill='#f59e0b'/><rect x='2' y='11' width='7' height='7' rx='1.5' fill='#3b82f6'/><rect x='11' y='11' width='7' height='7' rx='1.5' fill='#22a565'/>");
   if (t.indexOf("books") >= 0)
     return svgIcon("<rect x='1' y='1' width='18' height='18' rx='4' fill='#16a34a'/><text x='10' y='14.5' font-size='11' font-weight='bold' font-family='Raleway,sans-serif' fill='#fff' text-anchor='middle'>B</text>");
-  if (t.indexOf("creator") >= 0)
-    return svgIcon("<rect x='1' y='1' width='18' height='18' rx='4' fill='#8b5cf6'/><text x='10' y='14.5' font-size='11' font-weight='bold' font-family='Raleway,sans-serif' fill='#fff' text-anchor='middle'>C</text>");
   if (t.indexOf("report") >= 0)
     return svgIcon("<rect x='2' y='1' width='16' height='18' rx='2' fill='none' stroke='#0891b2' stroke-width='1.6'/><path d='M5 6h10M5 10h10M5 14h6' stroke='#0891b2' stroke-width='1.6' stroke-linecap='round'/>");
   if (t.indexOf("workflow") >= 0)
@@ -70,10 +68,10 @@ function chipFor(f) {
       (S.scoringRulesScanned ? ", no scoring rule references it" : "") +
       (S.blueprintFieldsScanned ? ", doesn't govern a blueprint" : "") + "'>unused</span>";
   } else if (cat === "unmatched") {
-    out = "<span class='chip na' title='No matching field found by name in the scanned Books/Creator sources'>" +
+    out = "<span class='chip na' title='No matching field found by name in the scanned Zoho Books fields'>" +
       unmatchedLabel() + "</span>";
   } else if (cat === "matched") {
-    out = ""; // the Books/Creator badge below already carries the match detail
+    out = ""; // the Books badge below already carries the match detail
   } else {
     var u = usageCounts(S.results[f.api_name]);
     out = "";
@@ -122,20 +120,13 @@ function chipFor(f) {
         (u.cwCriteria > 1 ? "s" : "") + "'>" + iconFor("criteria") + u.cwCriteria + "</span>";
     }
   }
-  // Books and Creator are both informational, matched by name only, so
-  // they're shown alongside any verdict chip instead of factoring into categoryOf.
+  // Books is informational, matched by name only, so it's shown alongside
+  // any verdict chip instead of factoring into categoryOf.
   if (cat !== "unchecked" && S.booksScanned) {
     var bn = (S.results[f.api_name].books || []).length;
     if (bn > 0) {
       out += "<span class='chip src-books' title='" + bn + " matching Zoho Books field" + (bn > 1 ? "s" : "") +
         " by name (informational, does not affect this verdict)'>" + iconFor("books") + bn + "</span>";
-    }
-  }
-  if (cat !== "unchecked" && S.creatorScanned) {
-    var crn = (S.results[f.api_name].creator || []).length;
-    if (crn > 0) {
-      out += "<span class='chip src-creator' title='" + crn + " matching Zoho Creator field" + (crn > 1 ? "s" : "") +
-        " by name (informational, does not affect this verdict)'>" + iconFor("creator") + crn + "</span>";
     }
   }
   return "<span class='chips'>" + out + "</span>";
@@ -219,7 +210,7 @@ $("btn-check-all").onclick = function () {
 $("btn-export").onclick = function () {
   var mod = $("module-pick").selectedOptions[0].textContent;
   var rows = [["Module", "Field", "API Name", "Type", "Custom", "Verdict", "Hits", "Used In",
-    "Books Matches (informational)", "Creator Matches (informational)"]];
+    "Books Matches (informational)"]];
   S.fields.forEach(function (f) {
     var cat = categoryOf(f);
     if (cat === "unchecked") return;
@@ -248,13 +239,12 @@ $("btn-export").onclick = function () {
     (r.cwCriteria || []).forEach(function (h) { uses.push("connected workflow criteria: " + h.name); });
     var verdict = cat === "used" ? "In use"
       : cat === "na" ? (S.functionsScanned ? "Not synced (absent from Analytics, no function references)" : "Not in Analytics")
-      : cat === "matched" ? "Matched by name in Books/Creator (informational)"
-      : cat === "unmatched" ? "No Books/Creator name match (informational)"
+      : cat === "matched" ? "Matched by name in Books (informational)"
+      : cat === "unmatched" ? "No Books name match (informational)"
       : "Unused (synced to Analytics, nothing depends on it)";
     var booksMatches = (r.books || []).map(function (b) { return b.entityLabel + ": " + b.label; }).join("; ");
-    var creatorMatchesStr = (r.creator || []).map(function (c) { return c.appLabel + " / " + c.formLabel + ": " + c.label; }).join("; ");
     rows.push([mod, f.label, f.api_name, f.type, f.custom ? "yes" : "no",
-      verdict, String(cat === "used" ? hitCount(r) : 0), uses.join("; "), booksMatches, creatorMatchesStr]);
+      verdict, String(cat === "used" ? hitCount(r) : 0), uses.join("; "), booksMatches]);
   });
   if (rows.length === 1) { $("check-progress").textContent = "Nothing to export yet: check some fields first."; return; }
   var csv = rows.map(function (r) {
@@ -283,7 +273,6 @@ function renderDetail(f) {
   var scope = S.tables.length + " tables / " + S.queryTables.length + " query tables" +
     (S.functionsScanned ? " / " + S.functions.length + " functions" : "") +
     (S.booksScanned ? " / " + S.booksFields.length + " Books fields" : "") +
-    (S.creatorScanned ? " / " + S.creatorFields.length + " Creator fields" : "") +
     (S.reportsScanned ? " / " + S.reports.length + " reports" : "") +
     (S.workflowFieldUpdatesScanned ? " / " + S.workflowFieldUpdates.length + " workflow field updates" : "") +
     (S.workflowRulesScanned ? " / " + S.workflowRules.length + " workflow rules" : "") +
@@ -324,13 +313,13 @@ function renderDetail(f) {
       "<small>" + (r.notSynced ? "Not synced to Analytics; found in CRM Deluge code only. " : "") +
       "Update or retire these before deleting. Scope: " + scope + ".</small></div>" +
       "<div class='verdict-breakdown'>" + breakdown + "</div></div>";
-  } else if (!usageScanned() && (S.booksScanned || S.creatorScanned)) {
-    var nameMatched = (r.books && r.books.length) || (r.creator && r.creator.length);
+  } else if (!usageScanned() && S.booksScanned) {
+    var nameMatched = r.books && r.books.length;
     html += nameMatched
-      ? "<div class='verdict clear'><b>Matched by name in Books/Creator</b>" +
+      ? "<div class='verdict clear'><b>Matched by name in Books</b>" +
         "<small>Analytics, CRM functions, reports, and workflow automations weren't part of this scan, so this reflects a name match only, not a usage check. Scope: " + scope + ".</small></div>"
       : "<div class='verdict na'><b>" + unmatchedLabel() + "</b><small>No field named like &ldquo;" +
-        esc(f.label) + "&rdquo; / " + esc(f.api_name) + " found in the scanned Books/Creator sources. " +
+        esc(f.label) + "&rdquo; / " + esc(f.api_name) + " found in the scanned Zoho Books fields. " +
         "Analytics, CRM functions, reports, and workflow automations weren't part of this scan. Scope: " + scope + ".</small></div>";
   } else if (r.notSynced) {
     html += "<div class='verdict na'><b>Not found in Analytics" +
@@ -488,15 +477,6 @@ function renderDetail(f) {
         b.standard ? "standard field" : "custom field", null, "");
     }).join("");
   }
-  if ((r.creator || []).length) {
-    html += "<h3 class='usage-group'>Zoho Creator fields matching by name <span class='gcount'>" +
-      r.creator.length + "</span></h3>" +
-      "<p class='section-note'>Informational only. Creator's Deluge form scripts aren't readable via API, " +
-      "so these are name matches against Creator form fields and do not affect the verdict above.</p>";
-    html += r.creator.map(function (c) {
-      return usageCard("Creator " + c.appLabel, c.label + " (" + c.apiName + ")", c.formLabel, null, "");
-    }).join("");
-  }
   $("detail-body").innerHTML = html + detailFooter(f);
 }
 
@@ -512,7 +492,7 @@ window.__recheck = function (apiName) {
   if (!f) return;
   delete S.results[apiName];
   // Invalidate dependents cache for this field's columns so the recheck is real
-  fieldTableMatches(f).forEach(function (m) { delete S.depCache[m.col.columnId]; });
+  moduleTableFirst(f).forEach(function (m) { delete S.depCache[m.col.columnId]; });
   S.activeField = apiName;
   renderFieldList();
   $("detail-body").innerHTML = "<p class='section-note'>Rechecking&hellip;</p>";
