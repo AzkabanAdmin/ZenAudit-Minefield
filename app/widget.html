@@ -153,9 +153,6 @@
             <code>ZohoCRM.settings.scoring_rules.READ</code>
             <code>ZohoCRM.settings.blueprint.READ</code>
             <code>ZohoCRM.settings.connected_workflows.READ</code></div>
-          <label>Books connection link name</label>
-          <input type="text" id="conn-books" value="books">
-          <div class="scopes">scope: <code>ZohoBooks.settings.READ</code></div>
           <div class="pair-row">
             <div>
               <label>Data center</label>
@@ -170,14 +167,6 @@
               <label>Organization</label>
               <select id="org-pick" disabled>
                 <option>loading orgs&hellip;</option>
-              </select>
-            </div>
-          </div>
-          <div class="pair-row">
-            <div>
-              <label>Books organization</label>
-              <select id="books-org-pick" disabled>
-                <option>turn on Zoho Books to load orgs</option>
               </select>
             </div>
           </div>
@@ -203,14 +192,6 @@
                 </svg></span>
               <span class="src-meta"><b>CRM Deluge functions</b><small>function code references</small></span>
               <input type="checkbox" id="include-fns" checked><span class="switch"></span>
-            </label>
-            <label class="src-tile">
-              <span class="src-icon"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <path d="M2.5 2.7a1.5 1.5 0 0 1 1.5-1.5h7.5v10.3H4a1.5 1.5 0 0 0-1.5 1.5z" />
-                  <path d="M2.5 13A1.5 1.5 0 0 1 4 11.5h7.5" />
-                </svg></span>
-              <span class="src-meta"><b>Zoho Books</b><small>matching custom fields, by name (informational)</small></span>
-              <input type="checkbox" id="include-books"><span class="switch"></span>
             </label>
             <label class="src-tile">
               <span class="src-icon"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -301,10 +282,6 @@
             <code>ZohoCRM.settings.automation_actions.READ</code> plus <code>ZohoCRM.settings.workflow_rules.READ</code>
             plus <code>ZohoCRM.settings.scoring_rules.READ</code> plus <code>ZohoCRM.settings.blueprint.READ</code> plus
             <code>ZohoCRM.settings.connected_workflows.READ</code> if your scope picker offers them separately), then
-            authorize it.
-          </li>
-          <li>For the optional Zoho Books check, create a third connection with link name <code>books</code> and scope
-            <code>ZohoBooks.settings.READ</code> (broader <code>ZohoBooks.fullaccess.all</code> also works), then
             authorize it.
           </li>
           <li>Reload this tab. Different link names are fine, just enter them above. Click any scope here to copy it.

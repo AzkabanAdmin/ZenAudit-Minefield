@@ -22,7 +22,6 @@ Each scan source is an independent toggle. Turn on only what you need; the more 
 | **CRM Deluge functions** | Function code that references the field's API name | On |
 | **CRM Automations** | Six sub-scans in one toggle (below) | Off |
 | **CRM Reports** | Report columns and filter criteria | Off |
-| **Zoho Books** | Same-named Books fields, informational only | Off |
 | **Reverse Analytics Audit** | Runs the opposite direction, standalone (below) | Off |
 
 **CRM Automations** covers workflow field updates, workflow rules (triggers and firing criteria tracked separately, since "fires the rule" and "filters the rule" are different facts), scoring rules, blueprints, webhooks, and connected workflows (Zoho Flow-triggered rules).
@@ -40,7 +39,8 @@ Not every source can be equally certain, so the app never pretends otherwise. Th
 | **Exact** | Analytics, workflow field updates, workflow rules, scoring rules, blueprints, connected workflows | Zoho's own dependency engine by `columnId`, or module **id** + field API name straight from the API |
 | **High** | CRM reports, webhooks | Report refs resolved through the report's own joins; webhook `${!Module.Field}` merge tags. Report references more than one join hop deep are labeled **unverified** rather than treated as certain |
 | **Heuristic** | CRM Deluge functions | Word-boundary regex on the field's API name, narrowed by inferring which module each Deluge variable belongs to, so a Contacts-scoped `First_Name` doesn't bleed into a Leads audit |
-| **Informational** | Zoho Books | Name match only, because Zoho's CRM-Books sync mapping isn't readable via API. Displayed alongside the verdict but **never** counted toward it |
+
+Every source counts toward the verdict. There is deliberately no "informational" tier: a result you can't act on is noise, so sources that could only ever report a name coincidence were removed rather than shipped with a disclaimer.
 
 Automation matching keys off module **id**, not API name, because different CRM endpoints disagree about the same module's name string (Deals reports as "Potentials" from Blueprints in some orgs). The id is consistent everywhere.
 
@@ -49,7 +49,6 @@ Automation matching keys off module **id**, not API name, because different CRM 
 - **`N` in use** — something depends on this field. The detail panel breaks the number down by source, each with a link out to the exact view, report, rule, or settings page so you can fix it before deleting.
 - **unused** — synced to Analytics, and Zoho's dependency engine reports nothing depending on it.
 - **not synced** / **not in Analytics** — no matching column exists at all, and nothing else references it. Also safe, and usually a dead field.
-- **no Books match** — only appears on a Books-only scan, where no usage source was checked.
 
 ## Using it
 
@@ -69,9 +68,8 @@ Three themes (dark by default, light, and zen) via the header dropdown, persiste
 |---|---|---|
 | `analytics` | `ZohoAnalytics.metadata.read` | Analytics + reverse audit |
 | `crm` | `ZohoCRM.settings.ALL` | Functions, reports, automations |
-| `books` | `ZohoBooks.settings.READ` | Zoho Books check (optional) |
 
-`ZohoCRM.settings.ALL` is known working. If your scope picker offers them separately, the minimal set is `settings.functions.READ`, `settings.reports.READ`, `settings.automation_actions.READ`, `settings.workflow_rules.READ`, `settings.scoring_rules.READ`, `settings.blueprint.READ`, and `settings.connected_workflows.READ`. Broader scopes (`ZohoAnalytics.fullaccess.all`, `ZohoBooks.fullaccess.all`) also work.
+Two connections, that's the whole setup. `ZohoCRM.settings.ALL` is known working. If your scope picker offers them separately, the minimal set is `settings.functions.READ`, `settings.reports.READ`, `settings.automation_actions.READ`, `settings.workflow_rules.READ`, `settings.scoring_rules.READ`, `settings.blueprint.READ`, and `settings.connected_workflows.READ`. The broader `ZohoAnalytics.fullaccess.all` also works.
 
 Click any scope chip in the widget to copy it.
 

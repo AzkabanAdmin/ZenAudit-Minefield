@@ -198,7 +198,6 @@ button.secondary:hover:not(:disabled) { background: var(--zen-green-btn); color:
 .chip svg { width: 12px; height: 12px; }
 .chip.src-an { background: #E6F4EE; color: var(--zen-green-btn); }
 .chip.src-fn { background: #EEF2F1; color: var(--zen-green); }
-.chip.src-books { background: #EAF1FB; color: #2563eb; }
 .chip.src-rpt { background: #E0F7FA; color: #0891b2; }
 .chip.src-wf { background: #FFEDD5; color: #c2410c; }
 .chip.src-trig { background: #FEF9C3; color: #a16207; }
@@ -397,7 +396,6 @@ body.dark .chip.review { background: rgba(251, 191, 36, .15); color: #fbbf24; }
 body.dark .chip.na, body.dark .chip.unchecked { background: rgba(255, 255, 255, .05); color: #9fb4a9; }
 body.dark .chip.src-an { background: rgba(2, 213, 142, .14); color: #8df0c8; }
 body.dark .chip.src-fn { background: rgba(15, 134, 86, .22); color: #a9e6cd; }
-body.dark .chip.src-books { background: rgba(37, 99, 235, .18); color: #93c5fd; }
 body.dark .chip.src-rpt { background: rgba(8, 145, 178, .18); color: #67e8f9; }
 body.dark .chip.src-wf { background: rgba(249, 115, 22, .18); color: #fdba74; }
 body.dark .chip.src-trig { background: rgba(234, 179, 8, .18); color: #fde047; }
@@ -440,9 +438,8 @@ body.dark .error { background: rgba(248, 113, 113, .14); color: #f5b5b5; }
    in the primary chrome (header, verdict card, loader bar) - two-hue
    gradients here previously averaged into a muddy brown-gray band instead
    of reading as a deliberate color. Leaves semantically-distinct colors
-   alone (error red, the amber review chip and audit tile, the blue/cyan
-   Books and Reports source chips, the otter mascot's own
-   palette) since those aren't part of the brand identity this theme is
+   alone (error red, the amber review chip and audit tile, the cyan
+   Reports source chip, the otter mascot's own palette) since those aren't part of the brand identity this theme is
    retinting. */
 body.zen {
   --zen-green: #2F4A2C;
@@ -486,7 +483,6 @@ body.zen .vb-link { transition: background .28s ease, transform .12s ease; }
    competing with it. src-webhook maps onto the theme's own sage accent
    rather than getting a separate muted hue, since "emerald" was already
    sage-adjacent - one fewer competing color. */
-body.zen .chip.src-books { background: #E7ECEE; color: #5B7A94; }
 body.zen .chip.src-rpt { background: #E6EEEE; color: #4F7E82; }
 body.zen .chip.src-wf { background: #F3E4D3; color: #A8663D; }
 body.zen .chip.src-trig { background: #F1EAD3; color: #96813F; }

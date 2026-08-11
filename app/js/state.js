@@ -11,9 +11,6 @@ var S = {
   analyticsScanned: false,
   functions: [],      // {id, name, code}
   functionsScanned: false,
-  booksOrgId: null,
-  booksFields: [],    // {entity, entityLabel, fieldId, label, apiName}
-  booksScanned: false,
   reports: [],        // {id, name, folderName, moduleApiName, joins, refs:[{apiName, kind}]}
   reportsScanned: false,
   reportsSkippedStale: 0,

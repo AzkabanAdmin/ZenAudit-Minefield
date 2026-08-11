@@ -70,11 +70,6 @@ function analyticsGet(path, config) {
 function crmGet(path) {
   return invokeConn($("conn-crm").value.trim(), crmApiBase() + "/crm/v8" + path);
 }
-function booksGet(path) {
-  var sep = path.indexOf("?") < 0 ? "?" : "&";
-  return invokeConn($("conn-books").value.trim(),
-    crmApiBase() + "/books/v3" + path + sep + "organization_id=" + S.booksOrgId);
-}
 // Run fn over items one at a time so we stay friendly with API limits
 function runQueue(items, fn, onStep) {
   return items.reduce(function (p, item, i) {
