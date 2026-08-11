@@ -171,17 +171,6 @@ function functionHits(field) {
   return hits;
 }
 
-// Zoho's native CRM-Books sync mapping isn't readable via API, so this is a
-// name match against Books custom and standard fields, purely informational
-// (see scan.js BOOKS_ENTITIES/STANDARD_BOOKS_FIELDS). Never affects hitCount/categoryOf.
-function bookMatches(field) {
-  if (!S.booksScanned) return [];
-  var wanted = {}; wanted[norm(field.label)] = 1; wanted[norm(field.api_name)] = 1;
-  return S.booksFields.filter(function (bf) {
-    return wanted[norm(bf.label)] || wanted[norm(bf.apiName)];
-  });
-}
-
 // A report field reference is either bare ("Achievement", on the report's
 // own module), one hop through a join ("Forecast_Name.Group_Id", resolved
 // via that report's joins list), or a multi-hop lookup chain
@@ -327,7 +316,7 @@ function checkField(field) {
   if (S.results[field.api_name]) return Promise.resolve(S.results[field.api_name]);
   var matches = moduleTableFirst(field);
   var result = {
-    columns: [], sql: sqlHits(field), functions: functionHits(field), books: bookMatches(field),
+    columns: [], sql: sqlHits(field), functions: functionHits(field),
     reports: reportHits(field), workflows: workflowFieldUpdateHits(field),
     triggers: workflowTriggerHits(field), criteria: workflowCriteriaHits(field),
     scoring: scoringRuleHits(field), blueprint: blueprintHits(field), webhooks: webhookHits(field),
@@ -360,10 +349,9 @@ function hitCount(result) {
     (result.cwTriggers || []).length + (result.cwCriteria || []).length;
 }
 
-// Whether this scan actually checked CRM field usage (Analytics sync, CRM
-// functions, reports, or any automation source) rather than just the
-// informational Books name-match source. notSynced/hitCount only mean
-// something against these.
+// Whether this scan checked CRM field usage at all. Every scan source is a
+// usage source now, so this is only false when nothing has been scanned yet;
+// notSynced/hitCount are meaningless until it's true.
 function usageScanned() {
   return S.analyticsScanned || S.functionsScanned || S.reportsScanned ||
     S.workflowFieldUpdatesScanned || S.workflowRulesScanned ||
@@ -375,13 +363,7 @@ function categoryOf(f) {
   var r = S.results[f.api_name];
   if (!r) return "unchecked";
   if (hitCount(r) > 0) return "used"; // function/report hits count even when not synced to Analytics
-  if (!usageScanned()) {
-    // Only Books (an informational, name-matched source) was scanned:
-    // there's nothing to say about Analytics sync/CRM usage, so fall back to
-    // whether this field matched by name instead of mislabeling it "na".
-    if (S.booksScanned) return (r.books && r.books.length) ? "matched" : "unmatched";
-    return "unchecked";
-  }
+  if (!usageScanned()) return "unchecked";
   return r.notSynced ? "na" : "clear";
 }
 
@@ -395,11 +377,6 @@ function naLabel() {
     ? "not synced" : "not in Analytics";
 }
 
-// Mirrors naLabel for the Books-only scan case (see categoryOf).
-function unmatchedLabel() {
-  return "no Books match";
-}
-
 function usageCounts(r) {
   var an = r.sql.length, fn = (r.functions || []).length, rpt = (r.reports || []).length,
     wf = (r.workflows || []).length, trig = (r.triggers || []).length, crit = (r.criteria || []).length,
@@ -410,6 +387,5 @@ function usageCounts(r) {
     an += c.dep.views.length + c.dep.customFormulas.length + c.dep.aggregateFormulas.length;
   });
   return { analytics: an, functions: fn, reports: rpt, workflows: wf, triggers: trig, criteria: crit,
-    scoring: score, blueprint: bp, webhooks: wh, cwTriggers: cwTrig, cwCriteria: cwCrit,
-    books: (r.books || []).length };
+    scoring: score, blueprint: bp, webhooks: wh, cwTriggers: cwTrig, cwCriteria: cwCrit };
 }

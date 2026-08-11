@@ -145,12 +145,6 @@ function selectedWorkspaces() {
     updateScanButton();
   };
 });
-$("include-books").onchange = function () {
-  var cb = $("include-books");
-  cb.closest(".src-tile").classList.toggle("on", cb.checked);
-  updateScanButton();
-  if (cb.checked && S.sdkReady && !S.booksOrgId) loadBooksOrgs();
-};
 
 // The reverse audit is a different operation (Analytics -> CRM instead of
 // CRM -> Analytics) that runs standalone; selecting it locks out the normal
@@ -158,7 +152,7 @@ $("include-books").onchange = function () {
 $("include-reverse-audit").onchange = function () {
   var cb = $("include-reverse-audit");
   var exclusive = cb.checked;
-  ["include-an", "include-fns", "include-books", "include-reports", "include-workflows"].forEach(function (id) {
+  ["include-an", "include-fns", "include-reports", "include-workflows"].forEach(function (id) {
     var other = $(id);
     other.disabled = exclusive;
     other.closest(".src-tile").classList.toggle("disabled-tile", exclusive);
@@ -183,96 +177,13 @@ function updateScanButton() {
     btn.disabled = !!(S.scanning || !S.sdkReady || !ws);
     return;
   }
-  var an = $("include-an").checked, fns = $("include-fns").checked, books = $("include-books").checked,
+  var an = $("include-an").checked, fns = $("include-fns").checked,
     reports = $("include-reports").checked, workflows = $("include-workflows").checked;
-  var srcs = (an ? 1 : 0) + (fns ? 1 : 0) + (books ? 1 : 0) + (reports ? 1 : 0) + (workflows ? 1 : 0);
+  var srcs = (an ? 1 : 0) + (fns ? 1 : 0) + (reports ? 1 : 0) + (workflows ? 1 : 0);
   var label = "Scan " + srcs + (srcs === 1 ? " source" : " sources");
   if (an) label += " · " + ws + (ws === 1 ? " workspace" : " workspaces");
   btn.textContent = srcs ? label : "Scan";
-  btn.disabled = !!(S.scanning || !S.sdkReady || !srcs || (an && !ws) || (books && !S.booksOrgId));
-}
-
-// Zoho Books has no readable API for its native CRM sync field mapping, so
-// matching falls back to comparing names against these entities' custom fields.
-var BOOKS_ENTITIES = [
-  { key: "contact", label: "Contacts (Customers/Vendors)" },
-  { key: "item", label: "Items" },
-  { key: "invoice", label: "Invoices" },
-  { key: "estimate", label: "Estimates" }
-];
-
-// Books has no schema API for its standard (non-custom) fields either, unlike
-// custom fields via /settings/fields. These are hardcoded from Books' own
-// field vocabulary purely so common fields (e.g. "Billing City") have
-// something to name-match against; still coincidental-name matching, not a
-// verified sync mapping. Labels use CRM's own terminology ("Billing Code" for
-// zip) so they line up with what a CRM field is actually called; apiName
-// reflects Books' real nested contact.billing_address/shipping_address keys
-// (address, street2, city, state, zip, country), confirmed against Zoho's
-// documented sample contact JSON.
-var STANDARD_BOOKS_FIELDS = {
-  contact: [
-    { label: "Company Name", apiName: "company_name" },
-    { label: "Email", apiName: "email" },
-    { label: "Phone", apiName: "phone" },
-    { label: "Mobile", apiName: "mobile" },
-    { label: "Website", apiName: "website" },
-    { label: "Billing Street", apiName: "billing_address.address" },
-    { label: "Billing City", apiName: "billing_address.city" },
-    { label: "Billing State", apiName: "billing_address.state" },
-    { label: "Billing Code", apiName: "billing_address.zip" },
-    { label: "Billing Country", apiName: "billing_address.country" },
-    { label: "Shipping Street", apiName: "shipping_address.address" },
-    { label: "Shipping City", apiName: "shipping_address.city" },
-    { label: "Shipping State", apiName: "shipping_address.state" },
-    { label: "Shipping Code", apiName: "shipping_address.zip" },
-    { label: "Shipping Country", apiName: "shipping_address.country" }
-  ],
-  item: [
-    { label: "Name", apiName: "name" },
-    { label: "Description", apiName: "description" },
-    { label: "SKU", apiName: "sku" },
-    { label: "Rate", apiName: "rate" },
-    { label: "Unit", apiName: "unit" }
-  ],
-  invoice: [
-    { label: "Reference Number", apiName: "reference_number" },
-    { label: "Notes", apiName: "notes" },
-    { label: "Terms", apiName: "terms" },
-    { label: "Due Date", apiName: "due_date" }
-  ],
-  estimate: [
-    { label: "Reference Number", apiName: "reference_number" },
-    { label: "Notes", apiName: "notes" },
-    { label: "Terms", apiName: "terms" },
-    { label: "Expiry Date", apiName: "expiry_date" }
-  ]
-};
-
-function loadBooksOrgs() {
-  var pick = $("books-org-pick");
-  pick.disabled = true;
-  pick.innerHTML = "<option>loading organizations&hellip;</option>";
-  return invokeConn($("conn-books").value.trim(), crmApiBase() + "/books/v3/organizations", {})
-    .then(function (body) {
-      var orgs = body.organizations || [];
-      pick.innerHTML = "";
-      orgs.forEach(function (o) {
-        var opt = document.createElement("option");
-        opt.value = o.organization_id; opt.textContent = o.name;
-        pick.appendChild(opt);
-      });
-      pick.disabled = orgs.length === 0;
-      S.booksOrgId = pick.value || null;
-      pick.onchange = function () { S.booksOrgId = pick.value || null; updateScanButton(); };
-      saveSettings();
-      updateScanButton();
-    }).catch(function (err) {
-      pick.innerHTML = "<option>could not load organizations</option>";
-      showError("Could not reach Zoho Books through connection \"" + $("conn-books").value +
-        "\". Check the connection link name and that it is authorized.\n" + String(err && err.message || err));
-      updateScanButton();
-    });
+  btn.disabled = !!(S.scanning || !S.sdkReady || !srcs || (an && !ws));
 }
 
 // The scan only needs deep details for Tables (their columns carry the
@@ -310,12 +221,11 @@ $("btn-scan").onclick = function () {
     return;
   }
 
-  var doAn = $("include-an").checked, doFns = $("include-fns").checked, doBooks = $("include-books").checked,
+  var doAn = $("include-an").checked, doFns = $("include-fns").checked,
     doReports = $("include-reports").checked, doWorkflows = $("include-workflows").checked;
-  if (!doAn && !doFns && !doBooks && !doReports && !doWorkflows) { showError("Turn on at least one scan source."); return; }
+  if (!doAn && !doFns && !doReports && !doWorkflows) { showError("Turn on at least one scan source."); return; }
   var targets = doAn ? selectedWorkspaces() : [];
   if (doAn && !targets.length) { showError("Select at least one workspace."); return; }
-  if (doBooks && !S.booksOrgId) { showError("Select a Books organization before scanning."); return; }
   S.scanning = true;
   S.analyticsScanned = doAn;
   $("btn-scan").disabled = true;
@@ -324,8 +234,6 @@ $("btn-scan").onclick = function () {
 
   (doAn ? scanAnalytics(targets) : Promise.resolve()).then(function () {
     return doFns ? scanFunctions() : null;
-  }).then(function () {
-    return doBooks ? scanBooks() : null;
   }).then(function () {
     return doReports ? scanReports() : null;
   }).then(function () {
@@ -347,7 +255,6 @@ $("btn-scan").onclick = function () {
         at: S.scannedAt, orgId: S.orgId, dc: $("dc").value,
         tables: S.tables, queryTables: S.queryTables, viewCount: S.viewCount, analyticsScanned: S.analyticsScanned,
         functions: S.functions, functionsScanned: S.functionsScanned,
-        booksFields: S.booksFields, booksScanned: S.booksScanned, booksOrgId: S.booksOrgId,
         reports: S.reports, reportsScanned: S.reportsScanned, reportsSkippedStale: S.reportsSkippedStale,
         workflowFieldUpdates: S.workflowFieldUpdates, workflowFieldUpdatesScanned: S.workflowFieldUpdatesScanned,
         workflowRules: S.workflowRules, workflowRulesScanned: S.workflowRulesScanned,
@@ -365,43 +272,6 @@ $("btn-scan").onclick = function () {
     showError(String(err && err.message || err));
   });
 };
-
-// Books has no readable field-mapping API (see BOOKS_ENTITIES comment above),
-// so this lists custom fields per entity via the API, then adds the
-// hardcoded standard fields (STANDARD_BOOKS_FIELDS) for name-based matching.
-function scanBooks() {
-  S.booksFields = []; S.booksScanned = false;
-  $("scan-progress").innerHTML = "Reading Zoho Books custom fields&hellip;";
-  showLoader("Reading Zoho Books custom fields...");
-  var failures = 0;
-  return runQueue(BOOKS_ENTITIES, function (ent) {
-    return booksGet("/settings/fields?entity=" + ent.key).then(function (body) {
-      (body.fields || []).forEach(function (f) {
-        S.booksFields.push({
-          entity: ent.key, entityLabel: ent.label, fieldId: f.field_id,
-          label: f.label, apiName: f.api_name, standard: false
-        });
-      });
-    }).catch(function () { failures++; });
-  }, function (i, n, ent) {
-    $("scan-progress").innerHTML = "Reading Books fields <b>" + i + " / " + n + "</b> - " + esc(ent.label);
-    showLoader("Reading Books fields " + i + " / " + n, n ? i / n : null);
-  }).then(function () {
-    BOOKS_ENTITIES.forEach(function (ent) {
-      (STANDARD_BOOKS_FIELDS[ent.key] || []).forEach(function (f) {
-        S.booksFields.push({
-          entity: ent.key, entityLabel: ent.label, fieldId: null,
-          label: f.label, apiName: f.apiName, standard: true
-        });
-      });
-    });
-    S.booksScanned = true;
-    if (failures === BOOKS_ENTITIES.length) {
-      showError("Could not read any Zoho Books custom fields (standard-field matching still applies). Check the \"" +
-        $("conn-books").value + "\" connection, its ZohoBooks.settings.READ scope, and the selected organization.");
-    }
-  });
-}
 
 // A year's worth of unused reports can be hundreds of detail calls, so this
 // filters to recently-accessed ones before fetching detail at all, not after.
@@ -939,7 +809,6 @@ $("btn-cache").onclick = function () {
   S.tables = c.tables; S.queryTables = c.queryTables; S.viewCount = c.viewCount;
   S.analyticsScanned = c.analyticsScanned != null ? !!c.analyticsScanned : (c.tables || []).length > 0;
   S.functions = c.functions || []; S.functionsScanned = !!c.functionsScanned;
-  S.booksFields = c.booksFields || []; S.booksScanned = !!c.booksScanned; S.booksOrgId = c.booksOrgId || null;
   S.reports = c.reports || []; S.reportsScanned = !!c.reportsScanned;
   S.reportsSkippedStale = c.reportsSkippedStale || 0;
   S.workflowFieldUpdates = c.workflowFieldUpdates || []; S.workflowFieldUpdatesScanned = !!c.workflowFieldUpdatesScanned;
@@ -962,7 +831,6 @@ function finishScan() {
     "<b>" + S.queryTables.length + "</b> query " + (S.queryTables.length === 1 ? "table" : "tables")
   ];
   if (S.functionsScanned) stats.push("<b>" + S.functions.length + "</b> functions");
-  if (S.booksScanned) stats.push("<b>" + S.booksFields.length + "</b> Books fields");
   if (S.reportsScanned) {
     stats.push("<b>" + S.reports.length + "</b> reports" +
       (S.reportsSkippedStale ? " (" + S.reportsSkippedStale + " skipped, not accessed in the past year)" : ""));
