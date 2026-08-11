@@ -75,9 +75,6 @@ function booksGet(path) {
   return invokeConn($("conn-books").value.trim(),
     crmApiBase() + "/books/v3" + path + sep + "organization_id=" + S.booksOrgId);
 }
-function creatorGet(path) {
-  return invokeConn($("conn-creator").value.trim(), crmApiBase() + "/creator/v2.1" + path);
-}
 // Run fn over items one at a time so we stay friendly with API limits
 function runQueue(items, fn, onStep) {
   return items.reduce(function (p, item, i) {

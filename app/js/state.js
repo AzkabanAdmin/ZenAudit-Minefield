@@ -14,9 +14,6 @@ var S = {
   booksOrgId: null,
   booksFields: [],    // {entity, entityLabel, fieldId, label, apiName}
   booksScanned: false,
-  creatorApps: [],       // {workspaceName, appName, label, selected}
-  creatorFields: [],     // {appLabel, formLabel, label, apiName}
-  creatorScanned: false,
   reports: [],        // {id, name, folderName, moduleApiName, joins, refs:[{apiName, kind}]}
   reportsScanned: false,
   reportsSkippedStale: 0,
@@ -40,7 +37,6 @@ var S = {
   connectedWorkflowRulesScanned: false,
   viewCount: 0,
   modules: [],
-  fieldMode: "crm",   // "crm" | "creator" — which source Step 2/3 are browsing
   fields: [],
   results: {},        // field api_name -> usage result (see checkField)
   depCache: {},       // columnId -> dependents payload

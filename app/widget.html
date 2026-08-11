@@ -156,10 +156,6 @@
           <label>Books connection link name</label>
           <input type="text" id="conn-books" value="books">
           <div class="scopes">scope: <code>ZohoBooks.settings.READ</code></div>
-          <label>Creator connection link name</label>
-          <input type="text" id="conn-creator" value="creator">
-          <div class="scopes">scopes: <code>ZohoCreator.meta.application.READ</code>
-            <code>ZohoCreator.meta.form.READ</code></div>
           <div class="pair-row">
             <div>
               <label>Data center</label>
@@ -232,14 +228,6 @@
               <span class="src-meta"><b>CRM Reports</b><small>report columns and filter criteria</small></span>
               <input type="checkbox" id="include-reports"><span class="switch"></span>
             </label>
-            <label class="src-tile">
-              <span class="src-icon"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <rect x="1.5" y="2.5" width="11" height="9" rx="1.5" />
-                  <path d="M4 5.5h6M4 8.5h3.5" />
-                </svg></span>
-              <span class="src-meta"><b>Zoho Creator</b><small>matching form fields, by name (informational)</small></span>
-              <input type="checkbox" id="include-creator"><span class="switch"></span>
-            </label>
             <div class="src-tile soon">
               <span class="src-icon"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3">
                   <rect x="1" y="1" width="5" height="5" rx="1" />
@@ -291,10 +279,6 @@
             <label>Analytics folders &mdash; Select to Include - typical folder path selected by default</label>
             <div id="folder-list"></div>
           </div>
-          <div id="creator-app-section" class="hidden">
-            <label>Zoho Creator apps to include &mdash; click to include or exclude</label>
-            <div id="creator-app-list"></div>
-          </div>
         </div>
 
         <div class="setup-col col-run">
@@ -323,11 +307,6 @@
             <code>ZohoBooks.settings.READ</code> (broader <code>ZohoBooks.fullaccess.all</code> also works), then
             authorize it.
           </li>
-          <li>For the optional Zoho Creator check, create a fourth connection with link name <code>creator</code> and
-            scopes <code>ZohoCreator.meta.application.READ</code> plus <code>ZohoCreator.meta.form.READ</code>, then
-            authorize it. Creator's Deluge scripts aren't readable via this API, only field names, so this check is
-            informational only, same as Books.
-          </li>
           <li>Reload this tab. Different link names are fine, just enter them above. Click any scope here to copy it.
           </li>
         </ol>
@@ -341,13 +320,9 @@
     <div class="cols hidden" id="results">
       <div class="card panel-fields">
         <h2><span class="step">2</span>Fields</h2>
-        <div class="mode-tabs hidden" id="field-mode-tabs">
-          <button type="button" data-mode="crm" class="active">CRM Fields</button>
-          <button type="button" data-mode="creator">Creator Fields</button>
-        </div>
         <div class="setup-row">
           <div>
-            <label id="field-mode-label">Module</label>
+            <label>Module</label>
             <select id="module-pick"></select>
           </div>
           <button id="btn-check-all" class="secondary">Check all fields</button>
