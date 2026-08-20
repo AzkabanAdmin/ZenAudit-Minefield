@@ -1,7 +1,16 @@
 "use strict";
 
-// Shared application state. Every other file reads and writes S; nothing else
-// holds cross-feature data.
+/* **********************************************************************
+ *   Shared_State
+ ********************************************************************** */
+
+/*
+ *   Every file reads and writes S; nothing else holds cross-feature data.
+ *   Each scan source stores its results in a list plus a matching
+ *   <name>Scanned flag, and SCANS in sources.js is what walks those pairs
+ *   when caching, restoring and summarising a scan.
+ */
+
 var S = {
   orgId: null,
   workspaces: [],     // {workspaceId, workspaceName, selected}
@@ -14,9 +23,8 @@ var S = {
   reports: [],        // {id, name, folderName, moduleApiName, joins, refs:[{apiName, kind}]}
   reportsScanned: false,
   reportsSkippedStale: 0,
-  // moduleId is what field-matching actually keys off; moduleApiName is kept
-  // alongside for display/debugging (see fields.js currentModuleId comment
-  // for why api_name alone isn't reliable across automation endpoints).
+  //==========// matching keys off moduleId; moduleApiName is kept for display
+  //==========// only (see currentModuleId in fields.js for why)
   workflowFieldUpdates: [], // {id, name, moduleApiName, moduleId, fieldApiName, value, valueType, featureType}
   workflowFieldUpdatesScanned: false,
   workflowRules: [], // {id, name, moduleApiName, moduleId, triggerFields:[apiName], criteriaFields:[apiName]}
@@ -25,9 +33,8 @@ var S = {
   scoringRulesScanned: false,
   blueprintFields: [], // {id, name, moduleApiName, moduleId, fieldApiName, pipelineName}
   blueprintFieldsScanned: false,
-  // webhookActions match on moduleApiName only (see extractMergeTagFieldRefs
-  // comment): merge-tag text names the module as a string, with no id to
-  // fall back on the way the other automation matchers can.
+  //==========// webhooks are the one source matched on moduleApiName: a merge tag
+  //==========// names its module as text, with no id to fall back on
   webhookActions: [], // {id, name, moduleApiName, fieldRefs:[{moduleApiName, fieldApiName}]}
   webhookActionsScanned: false,
   connectedWorkflowRules: [], // {id, name, moduleApiName, moduleId, triggerFields:[apiName], criteriaFields:[apiName]}

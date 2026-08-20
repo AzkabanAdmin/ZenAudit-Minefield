@@ -1,16 +1,20 @@
 "use strict";
 
-// Reverse Analytics Audit: the opposite direction of the main field check.
-// Instead of "does this CRM field have a matching Analytics column", this
-// asks "does this Analytics column (in a table that IS a CRM module's synced
-// table) have a matching CRM field". Surfaces columns left behind after a
-// CRM field was renamed or deleted, or added directly in Analytics.
-// Read-only reporting; doesn't touch S.results, checkField, or any verdict.
+/* **********************************************************************
+ *   Reverse_Analytics_Audit
+ ********************************************************************** */
 
-// A table counts as a verified CRM data table only if its name maps to
-// exactly one CRM module (by the same normalized-name idea moduleTableFirst
-// uses per-field, generalized here across every module at once). Ambiguous
-// or unmatched tables are skipped, not guessed at.
+/*
+ *   The opposite direction of the main field check. Instead of asking
+ *   whether a CRM field has a matching Analytics column, this asks whether
+ *   an Analytics column still has a matching CRM field, surfacing columns
+ *   left behind by a renamed or deleted field.
+ *
+ *   Read-only: it never touches S.results, checkField, or any verdict.
+ */
+
+//==========// A table is only a verified CRM data table if its name maps to exactly
+//==========// one module. Ambiguous or unmatched tables are skipped, not guessed at.
 function matchModuleForTable(table) {
   var tNorm = norm(table.viewName);
   var exact = S.modules.filter(function (m) {
@@ -35,20 +39,15 @@ function getModuleFields(mod) {
   });
 }
 
-// Confirmed against a real column response: a formula column's own dataType
-// still reflects its output type (e.g. "NUMBER" for "Age in Days"), it's the
-// non-empty formulaDisplayName (the formula expression itself, captured in
-// scanAnalytics as `formula`) that marks it as derived within Analytics
-// rather than a real synced field, so it's excluded from both the unmatched
-// list and the denominator used for match-ratio scoring below.
+//==========// A formula column's dataType still reads as its output type, so the
+//==========// non-empty formula expression is what marks it as derived rather than
+//==========// synced. Derived columns are never orphans.
 function isFormulaColumn(c) {
   return !!(c.formula && c.formula.trim());
 }
 
-// Zoho Analytics adds its own internal record identifier column ("Id") and a
-// denormalized "<Module> Owner Name" text column for the CRM Owner lookup
-// whenever it syncs CRM data, for every module. Neither one is ever meant to
-// have a matching CRM field, so they're not real orphans.
+//==========// Analytics adds its own "Id" and "<Module> Owner Name" columns to every
+//==========// synced module. Neither is meant to have a CRM field behind it.
 function isAlwaysIgnoredColumn(c) {
   var n = norm(c.columnName);
   return n === "id" || /_owner_name$/.test(n);
@@ -67,13 +66,10 @@ function unmatchedColumns(table, fields) {
   return auditableColumns(table).filter(function (c) { return !wanted[norm(c.columnName)]; });
 }
 
-// Table names alone aren't a reliable disambiguator: a consolidated workspace
-// (e.g. a "Zoho One" workspace mixing several apps) can have more than one
-// table whose name matches a module, like "Accounts" and "Accounts (Zoho
-// CRM)" both containing "accounts". Grouping by module first, then scoring
-// each name-matched candidate by how many of its columns actually line up
-// with that module's CRM fields, picks the real synced table instead of
-// whichever happened to name-match, and says so instead of guessing silently.
+//==========// Names alone are not a reliable disambiguator: one workspace can hold
+//==========// both "Accounts" and "Accounts (Zoho CRM)". So candidates are grouped
+//==========// by module, then scored on how many columns actually line up with that
+//==========// module's fields, and the losers are reported rather than hidden.
 function runReverseAudit() {
   showLoader("Matching Analytics tables to CRM modules...");
   var byModule = {};
@@ -163,11 +159,5 @@ $("btn-reverse-audit-export").onclick = function () {
     });
   });
   if (rows.length === 1) return;
-  var csv = rows.map(function (r) {
-    return r.map(function (cell) { return '"' + String(cell).replace(/"/g, '""') + '"'; }).join(",");
-  }).join("\r\n");
-  var a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = "reverse-analytics-audit.csv";
-  document.body.appendChild(a); a.click(); a.remove();
+  downloadCsv(rows, "reverse-analytics-audit.csv");
 };

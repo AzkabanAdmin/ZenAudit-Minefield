@@ -1,22 +1,31 @@
 "use strict";
 
-// DOM, URL, and text utilities plus the API transport layer.
+/* **********************************************************************
+ *   DOM_And_Text_Utilities
+ ********************************************************************** */
 
 function $(id) { return document.getElementById(id); }
 function apiBase() { return $("dc").value; }
 function webBase() { return apiBase().replace("analyticsapi.", "analytics."); }
 function crmApiBase() { return apiBase().replace("https://analyticsapi.zoho", "https://www.zohoapis"); }
 function crmWebBase() { return apiBase().replace("analyticsapi.zoho", "crm.zoho"); }
-// Workspace-scoped URL opens the editable view, unlike /open-view/
+/* **********************************************************************
+ *   Deep_Links
+ ********************************************************************** */
+
+/*
+ *   Confirmed against a live org. Without a resolved zgid, each of these
+ *   falls back to the generic list page rather than guessing whether an
+ *   org-less path still accepts a record id.
+ */
+
+//==========// the workspace-scoped URL opens the editable view, unlike /open-view/
 function viewLink(wsId, viewId) { return webBase() + "/workspace/" + wsId + "/view/" + viewId; }
 function functionsPageUrl() {
   return S.crmZgid
     ? crmWebBase() + "/crm/org" + S.crmZgid + "/settings/functions/myFunctions"
     : crmWebBase() + "/crm/settings/functions";
 }
-// Deep links confirmed against a live org; without zgid resolved yet, fall
-// back to the generic list page rather than guess whether an org-less path
-// still accepts the record ID, same caution as functionsPageUrl's fallback.
 function reportPageUrl(reportId) {
   return S.crmZgid
     ? crmWebBase() + "/crm/org" + S.crmZgid + "/tab/Reports/" + reportId
@@ -42,15 +51,27 @@ function blueprintPageUrl(blueprintId, moduleApiName) {
     ? crmWebBase() + "/crm/org" + S.crmZgid + "/settings/blueprint/" + blueprintId + "?module=" + moduleApiName
     : crmWebBase() + "/crm/settings/blueprint";
 }
+/* **********************************************************************
+ *   Text_Helpers
+ ********************************************************************** */
+
 function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
-// "Account Name", "Account_Name" and "account_name" all normalize to account_name
+//==========// "Account Name", "Account_Name" and "account_name" all normalize alike
 function norm(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, ""); }
 function showError(msg) { var e = $("setup-error"); e.classList.remove("hidden"); e.textContent = msg; }
 function clearError() { $("setup-error").classList.add("hidden"); }
 
-// All external calls go through a named Connection so OAuth and CORS are
-// handled server-side by CRM. This is the portability linchpin.
+/* **********************************************************************
+ *   API_Transport
+ ********************************************************************** */
+
+/*
+ *   Every external call goes through a named CRM Connection, so OAuth and
+ *   CORS are handled server-side by CRM. That is what keeps the widget
+ *   portable: an org configures two Connections once and nothing else.
+ */
+
 function invokeConn(connName, url, headers) {
   var req = { url: url, method: "GET", param_type: 1, parameters: {}, headers: headers || {} };
   return ZOHO.CRM.CONNECTION.invoke(connName, req).then(function (resp) {
@@ -70,7 +91,7 @@ function analyticsGet(path, config) {
 function crmGet(path) {
   return invokeConn($("conn-crm").value.trim(), crmApiBase() + "/crm/v8" + path);
 }
-// Run fn over items one at a time so we stay friendly with API limits
+//==========// run fn over items one at a time, to stay inside API rate limits
 function runQueue(items, fn, onStep) {
   return items.reduce(function (p, item, i) {
     return p.then(function () {

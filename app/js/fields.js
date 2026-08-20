@@ -1,7 +1,8 @@
 "use strict";
 
-// CRM field loading plus the analysis layer: mapping fields to Analytics
-// columns, fetching dependents, and computing verdicts.
+/* **********************************************************************
+ *   Field_Loading
+ ********************************************************************** */
 
 function loadModules() {
   ZOHO.CRM.META.getModules().then(function (resp) {
@@ -33,9 +34,26 @@ function loadFields() {
   });
 }
 
-// Columns whose normalized name equals the field's label or API name.
-// Tables named like primaryHint are checked first and flagged primary;
-// same-named columns in other tables still get checked, labeled by table.
+/* **********************************************************************
+ *   Current_Module
+ ********************************************************************** */
+
+//==========// Endpoints disagree on a module's api_name string (Deals reports as
+//==========// "Potentials" from Blueprints in some orgs), but the id is consistent
+//==========// everywhere, so automation matching keys off the id.
+function currentModuleId() {
+  var apiName = $("module-pick").value;
+  var m = S.modules.filter(function (x) { return x.api_name === apiName; })[0];
+  return m ? m.id : null;
+}
+
+/* **********************************************************************
+ *   Analytics_Matching
+ ********************************************************************** */
+
+//==========// Columns whose normalized name equals the field's label or API name.
+//==========// Tables named like primaryHint sort first and are flagged primary;
+//==========// same-named columns elsewhere still get checked, labeled by table.
 function tableFirstMatches(fieldLabel, fieldApiName, primaryHint) {
   var hintNorm = norm(primaryHint);
   var wanted = {}; wanted[norm(fieldLabel)] = 1; wanted[norm(fieldApiName)] = 1;
@@ -50,10 +68,12 @@ function tableFirstMatches(fieldLabel, fieldApiName, primaryHint) {
   matches.sort(function (a, b) { return (b.primary ? 1 : 0) - (a.primary ? 1 : 0); });
   return matches;
 }
+
 function moduleTableFirst(field) {
   return tableFirstMatches(field.label, field.api_name, $("module-pick").selectedOptions[0].textContent);
 }
 
+//==========// Zoho's own dependency engine, the same one behind Analytics' delete warnings
 function getDependents(m) {
   if (S.depCache[m.col.columnId]) return Promise.resolve(S.depCache[m.col.columnId]);
   return analyticsGet("/workspaces/" + m.table.wsId + "/views/" + m.table.viewId +
@@ -85,22 +105,18 @@ function sqlHits(field) {
   return hits;
 }
 
-// Best-effort Deluge module scoping for functionHits, so a Contacts-scoped
-// First_Name reference doesn't bleed into the Leads audit just because both
-// modules have a same-named field. Only field accesses through a variable
-// Deluge itself ties to an explicit module can be confidently attributed:
-// a getRecordById/getRecords/searchRecords/getRelatedRecords fetch, the
-// var = Module[criteria] shorthand, a map later passed to createRecord/
-// updateRecord, a raw invokeurl REST call with the module in the URL path
-// (.../crm/v8/Deals/...), or a variable unwrapped from one of those via the
-// Zoho REST envelope's .get("data"). Everything else (bare input.Field,
-// record.get("Field"), or any variable we can't resolve) stays ambiguous
-// and keeps today's module-agnostic behavior; this only ever REMOVES false
-// positives, it never drops a real hit we can't disprove. The shorthand and
-// invokeurl patterns are gated on matching one of this org's actual module
-// api_names (via S.modules), specifically to avoid mistaking ordinary
-// list/map indexing (someList[0]) or an unrelated URL for a module
-// reference.
+/* **********************************************************************
+ *   Deluge_Function_Matching
+ *
+ *   The only heuristic source. Deluge has no dependency API, so this is a
+ *   word-boundary search on the field's API name, narrowed by inferring
+ *   which module each variable in the script belongs to.
+ ********************************************************************** */
+
+//==========// Tag variables Deluge itself ties to an explicit module, so a
+//==========// Contacts-scoped First_Name doesn't bleed into a Leads audit. The
+//==========// shorthand and invokeurl patterns are gated on this org's real module
+//==========// names so ordinary list indexing (someList[0]) isn't mistaken for one.
 function extractDelugeModuleVars(code) {
   var vars = {};
   var knownModules = {};
@@ -108,13 +124,10 @@ function extractDelugeModuleVars(code) {
   var fetchRe = /(\w+)\s*=\s*zoho\.crm\.(?:getRecordById|getRecords|searchRecords|getRelatedRecords)\s*\(\s*["']([A-Za-z0-9_]+)["']/gi;
   var writeRe = /zoho\.crm\.(?:createRecord|updateRecord)\s*\(\s*["']([A-Za-z0-9_]+)["']\s*,\s*(?:\S+\s*,\s*)?(\w+)\s*\)/gi;
   var shorthandRe = /(\w+)\s*=\s*([A-Za-z][A-Za-z0-9_]*)\s*\[/g;
-  // Raw REST calls via invokeurl embed the module directly in the URL path
-  // (/crm/v{n}/Module[/id]), a very common alternative to the zoho.crm.*
-  // built-ins, especially in older/hand-written functions.
+  //==========// raw REST calls carry the module in the URL path: /crm/v{n}/Module
   var invokeUrlRe = /(\w+)\s*=\s*invokeurl\s*\[[\s\S]{0,300}?url\s*:\s*["'][^"']*\/crm\/v\d+\/([A-Za-z0-9_]+)/gi;
-  // The Zoho REST envelope {"data": [...]} is almost always unwrapped into a
-  // second variable before fields are read off it - propagate the tag from
-  // the envelope variable to whatever it's unwrapped into.
+  //==========// the {"data":[...]} envelope is usually unwrapped before fields are
+  //==========// read off it, so propagate the tag to whatever it unwraps into
   var unwrapRe = /(\w+)\s*=\s*(\w+)\s*\.\s*get\(\s*["']data["']\s*\)/gi;
   var m;
   while ((m = fetchRe.exec(code))) vars[m[1]] = knownModules[norm(m[2])] || m[2];
@@ -132,15 +145,15 @@ function extractDelugeModuleVars(code) {
   }
   return vars;
 }
+
 function delugeModuleVarsFor(fn) {
   if (!fn._moduleVars) fn._moduleVars = extractDelugeModuleVars(fn.code);
   return fn._moduleVars;
 }
-// True unless every variable-qualified access of this field (var.get(...),
-// var.put(...), or the var.Field shorthand) resolves to a module other than
-// currentModule - i.e. false only when we can positively show the
-// reference belongs elsewhere. A bare/unqualified access, or one through a
-// variable we couldn't resolve, always keeps this true (see comment above).
+
+//==========// False only when every qualified access provably belongs to another
+//==========// module. An unqualified access, or one through a variable we couldn't
+//==========// resolve, keeps the hit: this only ever removes disprovable matches.
 function functionReferencesFieldForModule(code, apiName, currentModule, moduleVars) {
   var qualifiedRe = new RegExp("([A-Za-z_]\\w*)\\s*\\.\\s*(?:get\\(\\s*[\"']" + escRe(apiName) + "[\"']\\s*\\)|" +
     "put\\(\\s*[\"']" + escRe(apiName) + "[\"']|" + escRe(apiName) + "\\b)", "g");
@@ -154,8 +167,7 @@ function functionReferencesFieldForModule(code, apiName, currentModule, moduleVa
   return !(sawQualified && sawOtherModuleOnly);
 }
 
-// Deluge scripts reference fields by API name (record.get("Stage"),
-// input.Stage, criteria strings), so functions are searched on API name only.
+//==========// Deluge names fields by API name only: record.get("Stage"), input.Stage
 function functionHits(field) {
   var hits = [];
   if (!field.api_name || field.api_name.length < 3) return hits;
@@ -171,14 +183,15 @@ function functionHits(field) {
   return hits;
 }
 
-// A report field reference is either bare ("Achievement", on the report's
-// own module), one hop through a join ("Forecast_Name.Group_Id", resolved
-// via that report's joins list), or a multi-hop lookup chain
-// ("Forecast_Name.Group_Id.Forecast_Group_Name") that can't be resolved to a
-// module without extra API calls per intermediate module. Bare and one-hop
-// references are verified against the currently checked field's module;
-// anything deeper is reported by name only, flagged unverified rather than
-// silently treated as equally certain.
+/* **********************************************************************
+ *   Report_Matching
+ ********************************************************************** */
+
+//==========// A ref is bare ("Achievement"), one hop through a join
+//==========// ("Forecast_Name.Group_Id"), or a deeper lookup chain that can't be
+//==========// resolved without a call per intermediate module. Bare and one-hop
+//==========// refs are verified against the field's module; deeper ones are
+//==========// reported by name and flagged unverified rather than assumed certain.
 function resolveRefModule(report, parts) {
   if (parts.length === 1) return { known: true, moduleApiName: report.moduleApiName };
   if (parts.length === 2) {
@@ -188,9 +201,6 @@ function resolveRefModule(report, parts) {
   return { known: false, moduleApiName: null };
 }
 
-// Report references are by api_name only, same reasoning as functionHits.
-// Counts toward hitCount/categoryOf just like Analytics and function hits,
-// per your call that this should behave "just like functions."
 function reportHits(field) {
   if (!S.reportsScanned || !field.api_name) return [];
   var currentModule = $("module-pick").value;
@@ -198,8 +208,7 @@ function reportHits(field) {
   S.reports.forEach(function (r) {
     r.refs.forEach(function (ref) {
       var parts = ref.apiName.split(".");
-      var tail = parts[parts.length - 1];
-      if (norm(tail) !== norm(field.api_name)) return;
+      if (norm(parts[parts.length - 1]) !== norm(field.api_name)) return;
       var resolved = resolveRefModule(r, parts);
       if (resolved.known && resolved.moduleApiName !== currentModule) return;
       hits.push({
@@ -211,79 +220,56 @@ function reportHits(field) {
   return hits;
 }
 
-// Different CRM automation endpoints can disagree on a module's api_name
-// string for the same module (e.g. Deals' own module.api_name comes back as
-// "Deals" from Workflow Rules but "Potentials" from Blueprints in some
-// orgs, confirmed against a live org, not assumed) - the module id, however,
-// is consistent everywhere. All automation matching below keys off id
-// instead of api_name for exactly that reason.
-function currentModuleId() {
-  var apiName = $("module-pick").value;
-  var m = S.modules.filter(function (x) { return x.api_name === apiName; })[0];
-  return m ? m.id : null;
+/* **********************************************************************
+ *   Automation_Matching
+ *
+ *   Every automation source names its module and field outright, so these
+ *   are exact matches rather than text searches. Two shapes cover all of
+ *   them: a criteria list to search, or a single governing field.
+ ********************************************************************** */
+
+//==========// module id + membership in a criteria array (workflow, scoring, connected rules)
+function criteriaMatcher(store, flag, arrayKey, map) {
+  return function (field) {
+    if (!S[flag] || !field.api_name) return [];
+    var moduleId = currentModuleId();
+    return S[store].filter(function (r) {
+      return r.moduleId === moduleId && r[arrayKey].indexOf(field.api_name) >= 0;
+    }).map(map);
+  };
 }
 
-// Field Update actions name their target module + field by api_name/id
-// directly (Zoho's Field Update Actions API), so this is an exact match, not
-// a name/regex heuristic like functionHits/reportHits. Counts toward
-// hitCount/categoryOf just like functions and reports, since an exact match
-// is at least as trustworthy as those.
-function workflowFieldUpdateHits(field) {
-  if (!S.workflowFieldUpdatesScanned || !field.api_name) return [];
-  var moduleId = currentModuleId();
-  return S.workflowFieldUpdates.filter(function (fu) {
-    return fu.moduleId === moduleId && fu.fieldApiName === field.api_name;
-  }).map(function (fu) {
+//==========// module id + one named field (field updates, blueprints)
+function namedFieldMatcher(store, flag, map) {
+  return function (field) {
+    if (!S[flag] || !field.api_name) return [];
+    var moduleId = currentModuleId();
+    return S[store].filter(function (r) {
+      return r.moduleId === moduleId && r.fieldApiName === field.api_name;
+    }).map(map);
+  };
+}
+
+function byIdAndName(r) { return { id: r.id, name: r.name }; }
+
+var workflowFieldUpdateHits = namedFieldMatcher("workflowFieldUpdates", "workflowFieldUpdatesScanned",
+  function (fu) {
     return { id: fu.id, name: fu.name, value: fu.value, valueType: fu.valueType, featureType: fu.featureType };
   });
-}
 
-// Workflow rule triggers and firing conditions are also exact module/field
-// matches (see scanWorkflowRules/walkCriteriaGroup), so they count toward
-// the verdict just like workflow field updates. Kept as two separate hit
-// lists rather than merged, since "used as a trigger" and "used in firing
-// criteria" are different things to know about a field.
-function workflowTriggerHits(field) {
-  if (!S.workflowRulesScanned || !field.api_name) return [];
-  var moduleId = currentModuleId();
-  return S.workflowRules.filter(function (r) {
-    return r.moduleId === moduleId && r.triggerFields.indexOf(field.api_name) >= 0;
-  }).map(function (r) { return { id: r.id, name: r.name }; });
-}
-function workflowCriteriaHits(field) {
-  if (!S.workflowRulesScanned || !field.api_name) return [];
-  var moduleId = currentModuleId();
-  return S.workflowRules.filter(function (r) {
-    return r.moduleId === moduleId && r.criteriaFields.indexOf(field.api_name) >= 0;
-  }).map(function (r) { return { id: r.id, name: r.name }; });
-}
+var blueprintHits = namedFieldMatcher("blueprintFields", "blueprintFieldsScanned",
+  function (bp) { return { id: bp.id, name: bp.name, pipelineName: bp.pipelineName }; });
 
-// Scoring rules' field_rules criteria are the same exact module/field match
-// as workflow triggers/criteria (see extractScoringFieldRefs).
-function scoringRuleHits(field) {
-  if (!S.scoringRulesScanned || !field.api_name) return [];
-  var moduleId = currentModuleId();
-  return S.scoringRules.filter(function (r) {
-    return r.moduleId === moduleId && r.criteriaFields.indexOf(field.api_name) >= 0;
-  }).map(function (r) { return { id: r.id, name: r.name }; });
-}
+var workflowTriggerHits = criteriaMatcher("workflowRules", "workflowRulesScanned", "triggerFields", byIdAndName);
+var workflowCriteriaHits = criteriaMatcher("workflowRules", "workflowRulesScanned", "criteriaFields", byIdAndName);
+var scoringRuleHits = criteriaMatcher("scoringRules", "scoringRulesScanned", "criteriaFields", byIdAndName);
+var connectedWorkflowTriggerHits = criteriaMatcher("connectedWorkflowRules", "connectedWorkflowRulesScanned",
+  "triggerFields", byIdAndName);
+var connectedWorkflowCriteriaHits = criteriaMatcher("connectedWorkflowRules", "connectedWorkflowRulesScanned",
+  "criteriaFields", byIdAndName);
 
-// A blueprint has exactly one governing field (e.g. Status), not a criteria
-// list, so this is a direct equality match rather than an array membership
-// check like the other workflow hit types.
-function blueprintHits(field) {
-  if (!S.blueprintFieldsScanned || !field.api_name) return [];
-  var moduleId = currentModuleId();
-  return S.blueprintFields.filter(function (bp) {
-    return bp.moduleId === moduleId && bp.fieldApiName === field.api_name;
-  }).map(function (bp) { return { id: bp.id, name: bp.name, pipelineName: bp.pipelineName }; });
-}
-
-// Webhook merge-tags name their module as a plain string (see
-// extractMergeTagFieldRefs), not an id, so unlike the other automation
-// matchers this compares against the module api_name directly - it can't be
-// corrected for the Deals/Potentials-style module-naming quirk since
-// there's no id inside the tag text to fall back on.
+//==========// Merge tags name the module as plain text with no id alongside, so this
+//==========// is the one automation source matched on api_name instead.
 function webhookHits(field) {
   if (!S.webhookActionsScanned || !field.api_name) return [];
   var currentModule = $("module-pick").value;
@@ -291,47 +277,41 @@ function webhookHits(field) {
     return wh.fieldRefs.some(function (fr) {
       return fr.moduleApiName === currentModule && fr.fieldApiName === field.api_name;
     });
-  }).map(function (wh) { return { id: wh.id, name: wh.name }; });
+  }).map(byIdAndName);
 }
 
-// Connected workflow triggers/criteria reuse the exact same matching as
-// regular workflow rules (see scanConnectedWorkflows), just against a
-// separate list since they're a distinct automation feature.
-function connectedWorkflowTriggerHits(field) {
-  if (!S.connectedWorkflowRulesScanned || !field.api_name) return [];
-  var moduleId = currentModuleId();
-  return S.connectedWorkflowRules.filter(function (r) {
-    return r.moduleId === moduleId && r.triggerFields.indexOf(field.api_name) >= 0;
-  }).map(function (r) { return { id: r.id, name: r.name }; });
-}
-function connectedWorkflowCriteriaHits(field) {
-  if (!S.connectedWorkflowRulesScanned || !field.api_name) return [];
-  var moduleId = currentModuleId();
-  return S.connectedWorkflowRules.filter(function (r) {
-    return r.moduleId === moduleId && r.criteriaFields.indexOf(field.api_name) >= 0;
-  }).map(function (r) { return { id: r.id, name: r.name }; });
-}
+//==========// matcher per SOURCES key, resolved when checkField runs
+var MATCHERS = {
+  functions: functionHits,
+  reports: reportHits,
+  workflows: workflowFieldUpdateHits,
+  triggers: workflowTriggerHits,
+  criteria: workflowCriteriaHits,
+  scoring: scoringRuleHits,
+  blueprint: blueprintHits,
+  webhooks: webhookHits,
+  cwTriggers: connectedWorkflowTriggerHits,
+  cwCriteria: connectedWorkflowCriteriaHits
+};
+
+/* **********************************************************************
+ *   Verdicts
+ ********************************************************************** */
 
 function checkField(field) {
   if (S.results[field.api_name]) return Promise.resolve(S.results[field.api_name]);
   var matches = moduleTableFirst(field);
-  var result = {
-    columns: [], sql: sqlHits(field), functions: functionHits(field),
-    reports: reportHits(field), workflows: workflowFieldUpdateHits(field),
-    triggers: workflowTriggerHits(field), criteria: workflowCriteriaHits(field),
-    scoring: scoringRuleHits(field), blueprint: blueprintHits(field), webhooks: webhookHits(field),
-    cwTriggers: connectedWorkflowTriggerHits(field), cwCriteria: connectedWorkflowCriteriaHits(field),
-    notSynced: matches.length === 0
-  };
+  var result = { columns: [], sql: sqlHits(field), notSynced: matches.length === 0 };
+  SOURCES.forEach(function (src) { result[src.key] = MATCHERS[src.key](field); });
   return runQueue(matches, function (m) {
+    var base = { tableName: m.table.viewName, wsName: m.table.wsName, wsId: m.table.wsId,
+      primary: m.primary, columnName: m.col.columnName };
     return getDependents(m).then(function (dep) {
-      result.columns.push({
-        tableName: m.table.viewName, wsName: m.table.wsName, wsId: m.table.wsId, primary: m.primary,
-        columnName: m.col.columnName, dep: dep
-      });
+      base.dep = dep;
+      result.columns.push(base);
     }).catch(function () {
-      result.columns.push({ tableName: m.table.viewName, wsName: m.table.wsName, wsId: m.table.wsId,
-        primary: m.primary, columnName: m.col.columnName, dep: null, error: true });
+      base.dep = null; base.error = true;
+      result.columns.push(base);
     });
   }).then(function () {
     S.results[field.api_name] = result;
@@ -339,53 +319,44 @@ function checkField(field) {
   });
 }
 
-function hitCount(result) {
+function analyticsHitCount(result) {
   return result.columns.reduce(function (n, c) {
     if (!c.dep) return n;
     return n + c.dep.views.length + c.dep.customFormulas.length + c.dep.aggregateFormulas.length;
-  }, 0) + result.sql.length + (result.functions || []).length + (result.reports || []).length +
-    (result.workflows || []).length + (result.triggers || []).length + (result.criteria || []).length +
-    (result.scoring || []).length + (result.blueprint || []).length + (result.webhooks || []).length +
-    (result.cwTriggers || []).length + (result.cwCriteria || []).length;
+  }, 0);
 }
 
-// Whether this scan checked CRM field usage at all. Every scan source is a
-// usage source now, so this is only false when nothing has been scanned yet;
-// notSynced/hitCount are meaningless until it's true.
+//==========// per-source counts behind a verdict, in SOURCES order
+function usageCounts(r) {
+  var counts = { analytics: analyticsHitCount(r) + r.sql.length };
+  SOURCES.forEach(function (src) { counts[src.key] = hitsFor(r, src).length; });
+  return counts;
+}
+
+function hitCount(result) {
+  return SOURCES.reduce(function (n, src) {
+    return n + hitsFor(result, src).length;
+  }, analyticsHitCount(result) + result.sql.length);
+}
+
+//==========// false only before anything has been scanned, when notSynced and
+//==========// hitCount carry no meaning yet
 function usageScanned() {
-  return S.analyticsScanned || S.functionsScanned || S.reportsScanned ||
-    S.workflowFieldUpdatesScanned || S.workflowRulesScanned ||
-    S.scoringRulesScanned || S.blueprintFieldsScanned ||
-    S.webhookActionsScanned || S.connectedWorkflowRulesScanned;
+  return S.analyticsScanned || ranScans().length > 0;
 }
 
 function categoryOf(f) {
   var r = S.results[f.api_name];
   if (!r) return "unchecked";
-  if (hitCount(r) > 0) return "used"; // function/report hits count even when not synced to Analytics
+  //==========// a CRM reference counts even when the field never reached Analytics
+  if (hitCount(r) > 0) return "used";
   if (!usageScanned()) return "unchecked";
   return r.notSynced ? "na" : "clear";
 }
 
-// Two flavors of safe-to-delete: green "unused" = synced to Analytics but
-// nothing depends on it; gray "not synced" = absent from Analytics entirely.
-// Both imply no CRM function/report/automation references (those force used).
+//==========// Two flavors of safe to delete: "unused" is synced to Analytics with
+//==========// nothing depending on it, "not synced" is absent from Analytics
+//==========// entirely. Both already imply no CRM references, which force "used".
 function naLabel() {
-  return (S.functionsScanned || S.reportsScanned || S.workflowFieldUpdatesScanned ||
-    S.workflowRulesScanned || S.scoringRulesScanned || S.blueprintFieldsScanned ||
-    S.webhookActionsScanned || S.connectedWorkflowRulesScanned)
-    ? "not synced" : "not in Analytics";
-}
-
-function usageCounts(r) {
-  var an = r.sql.length, fn = (r.functions || []).length, rpt = (r.reports || []).length,
-    wf = (r.workflows || []).length, trig = (r.triggers || []).length, crit = (r.criteria || []).length,
-    score = (r.scoring || []).length, bp = (r.blueprint || []).length, wh = (r.webhooks || []).length,
-    cwTrig = (r.cwTriggers || []).length, cwCrit = (r.cwCriteria || []).length;
-  r.columns.forEach(function (c) {
-    if (!c.dep) return;
-    an += c.dep.views.length + c.dep.customFormulas.length + c.dep.aggregateFormulas.length;
-  });
-  return { analytics: an, functions: fn, reports: rpt, workflows: wf, triggers: trig, criteria: crit,
-    scoring: score, blueprint: bp, webhooks: wh, cwTriggers: cwTrig, cwCriteria: cwCrit };
+  return ranScans().length ? "not synced" : "not in Analytics";
 }
