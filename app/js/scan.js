@@ -137,6 +137,25 @@ function selectedWorkspaces() {
 }
 
 /* **********************************************************************
+ *   Paging
+ *
+ *   CRM list endpoints return at most 200 rows and flag the rest through
+ *   info.more_records. Every list call goes through here so no source can
+ *   silently truncate a large org.
+ ********************************************************************** */
+
+function listAllPages(path, key) {
+  function page(n, all) {
+    var sep = path.indexOf("?") < 0 ? "?" : "&";
+    return crmGet(path + sep + "page=" + n + "&per_page=200").then(function (body) {
+      all = all.concat((body && body[key]) || []);
+      return (body && body.info && body.info.more_records) ? page(n + 1, all) : all;
+    });
+  }
+  return page(1, []);
+}
+
+/* **********************************************************************
  *   Source_Toggles
  ********************************************************************** */
 
@@ -404,14 +423,7 @@ function scanWorkflowRules() {
   $("scan-progress").innerHTML = "Listing CRM workflow rules&hellip;";
   showLoader("Listing CRM workflow rules...");
   var failures = 0;
-  function listPage(page, all) {
-    return crmGet("/settings/automation/workflow_rules?page=" + page + "&per_page=200").then(function (body) {
-      all = all.concat((body && body.workflow_rules) || []);
-      var info = body && body.info;
-      return (info && info.more_records) ? listPage(page + 1, all) : all;
-    });
-  }
-  return listPage(1, []).then(function (list) {
+  return listAllPages("/settings/automation/workflow_rules", "workflow_rules").then(function (list) {
     var listed = list.length;
     return runQueue(list, function (rule) {
       return crmGet("/settings/automation/workflow_rules/" + rule.id).then(function (detail) {
@@ -450,21 +462,13 @@ function scanScoringRules() {
   S.scoringRules = []; S.scoringRulesScanned = false;
   $("scan-progress").innerHTML = "Listing CRM scoring rules&hellip;";
   showLoader("Listing CRM scoring rules...");
-  function listPage(page, all) {
-    return crmGet("/settings/automation/scoring_rules?page=" + page + "&per_page=200").then(function (body) {
-      ((body && body.scoring_rules) || []).forEach(function (rule) {
-        if (!rule.module) return;
-        all.push({
-          id: rule.id, name: rule.name, moduleApiName: rule.module.api_name, moduleId: rule.module.id,
-          criteriaFields: extractScoringFieldRefs(rule)
-        });
-      });
-      var info = body && body.info;
-      return (info && info.more_records) ? listPage(page + 1, all) : all;
+  return listAllPages("/settings/automation/scoring_rules", "scoring_rules").then(function (rules) {
+    S.scoringRules = rules.filter(function (rule) { return !!rule.module; }).map(function (rule) {
+      return {
+        id: rule.id, name: rule.name, moduleApiName: rule.module.api_name, moduleId: rule.module.id,
+        criteriaFields: extractScoringFieldRefs(rule)
+      };
     });
-  }
-  return listPage(1, []).then(function (all) {
-    S.scoringRules = all;
     S.scoringRulesScanned = true;
   }).catch(function (err) {
     showError("Scoring rules scan failed (other automation matching is unaffected). Check the \"" + $("conn-crm").value +
@@ -479,21 +483,13 @@ function scanBlueprints() {
   S.blueprintFields = []; S.blueprintFieldsScanned = false;
   $("scan-progress").innerHTML = "Listing CRM blueprints&hellip;";
   showLoader("Listing CRM blueprints...");
-  function listPage(page, all) {
-    return crmGet("/settings/blueprints?page=" + page + "&per_page=200").then(function (body) {
-      ((body && body.blueprints) || []).forEach(function (bp) {
-        if (!bp.module || !bp.field) return;
-        all.push({
-          id: bp.id, name: bp.name, moduleApiName: bp.module.api_name, moduleId: bp.module.id,
-          fieldApiName: bp.field.api_name, pipelineName: (bp.pipeline && bp.pipeline.name) || null
-        });
-      });
-      var info = body && body.info;
-      return (info && info.more_records) ? listPage(page + 1, all) : all;
+  return listAllPages("/settings/blueprints", "blueprints").then(function (blueprints) {
+    S.blueprintFields = blueprints.filter(function (bp) { return bp.module && bp.field; }).map(function (bp) {
+      return {
+        id: bp.id, name: bp.name, moduleApiName: bp.module.api_name, moduleId: bp.module.id,
+        fieldApiName: bp.field.api_name, pipelineName: (bp.pipeline && bp.pipeline.name) || null
+      };
     });
-  }
-  return listPage(1, []).then(function (all) {
-    S.blueprintFields = all;
     S.blueprintFieldsScanned = true;
   }).catch(function (err) {
     showError("Blueprints scan failed (other automation matching is unaffected). Check the \"" + $("conn-crm").value +
@@ -527,18 +523,13 @@ function scanWebhooks() {
   S.webhookActions = []; S.webhookActionsScanned = false;
   $("scan-progress").innerHTML = "Listing CRM webhooks&hellip;";
   showLoader("Listing CRM webhooks...");
-  function listPage(page, all) {
-    return crmGet("/settings/automation/webhooks?page=" + page + "&per_page=200").then(function (body) {
-      ((body && body.webhooks) || []).forEach(function (wh) {
-        if (!wh.module) return;
-        all.push({ id: wh.id, name: wh.name, moduleApiName: wh.module.api_name, fieldRefs: extractMergeTagFieldRefs(wh) });
-      });
-      var info = body && body.info;
-      return (info && info.more_records) ? listPage(page + 1, all) : all;
+  return listAllPages("/settings/automation/webhooks", "webhooks").then(function (webhooks) {
+    S.webhookActions = webhooks.filter(function (wh) { return !!wh.module; }).map(function (wh) {
+      return {
+        id: wh.id, name: wh.name, moduleApiName: wh.module.api_name,
+        fieldRefs: extractMergeTagFieldRefs(wh)
+      };
     });
-  }
-  return listPage(1, []).then(function (all) {
-    S.webhookActions = all;
     S.webhookActionsScanned = true;
   }).catch(function (err) {
     showError("Webhooks scan failed (other automation matching is unaffected). Check the \"" + $("conn-crm").value +
@@ -555,14 +546,7 @@ function scanConnectedWorkflows() {
   $("scan-progress").innerHTML = "Listing connected workflows&hellip;";
   showLoader("Listing connected workflows...");
   var failures = 0;
-  function listWorkflows(page, all) {
-    return crmGet("/settings/connected_workflows?page=" + page + "&per_page=200").then(function (body) {
-      all = all.concat((body && body.connected_workflows) || []);
-      var info = body && body.info;
-      return (info && info.more_records) ? listWorkflows(page + 1, all) : all;
-    });
-  }
-  return listWorkflows(1, []).then(function (workflows) {
+  return listAllPages("/settings/connected_workflows", "connected_workflows").then(function (workflows) {
     return runQueue(workflows, function (cw) {
       return crmGet("/settings/connected_workflows/" + cw.id + "/rules").then(function (body) {
         var rules = (body && body.rules) || [];
@@ -722,8 +706,7 @@ function scanFunctions() {
   $("scan-progress").innerHTML = "Listing CRM Deluge functions&hellip;";
   showLoader("Listing CRM Deluge functions…");
   var failures = 0;
-  return crmGet("/settings/functions").then(function (body) {
-    var fns = (body && body.functions) || [];
+  return listAllPages("/settings/functions", "functions").then(function (fns) {
     var listed = fns.length;
     return runQueue(fns, function (fn) {
       return fetchFunctionCode(fn).then(function (code) {
@@ -754,23 +737,14 @@ function scanWorkflowFieldUpdates() {
   S.workflowFieldUpdates = []; S.workflowFieldUpdatesScanned = false;
   $("scan-progress").innerHTML = "Listing CRM workflow field updates&hellip;";
   showLoader("Listing CRM workflow field updates...");
-  function fetchPage(page) {
-    $("scan-progress").innerHTML = "Listing CRM workflow field updates &mdash; page <b>" + page + "</b>&hellip;";
-    showLoader("Listing CRM workflow field updates — page " + page + "...");
-    return crmGet("/settings/automation/field_updates?page=" + page + "&per_page=200").then(function (body) {
-      ((body && body.field_updates) || []).forEach(function (fu) {
-        if (!fu.module || !fu.field) return;
-        S.workflowFieldUpdates.push({
-          id: fu.id, name: fu.name,
-          moduleApiName: fu.module.api_name, moduleId: fu.module.id, fieldApiName: fu.field.api_name,
-          value: fu.value, valueType: fu.type, featureType: fu.feature_type
-        });
-      });
-      var info = body && body.info;
-      if (info && info.more_records) return fetchPage(page + 1);
+  return listAllPages("/settings/automation/field_updates", "field_updates").then(function (updates) {
+    S.workflowFieldUpdates = updates.filter(function (fu) { return fu.module && fu.field; }).map(function (fu) {
+      return {
+        id: fu.id, name: fu.name, moduleApiName: fu.module.api_name, moduleId: fu.module.id,
+        fieldApiName: fu.field.api_name,
+        value: fu.value, valueType: fu.type, featureType: fu.feature_type
+      };
     });
-  }
-  return fetchPage(1).then(function () {
     S.workflowFieldUpdatesScanned = true;
   }).catch(function (err) {
     showError("Workflow field updates scan failed. Check the \"" + $("conn-crm").value +

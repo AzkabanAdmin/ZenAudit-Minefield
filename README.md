@@ -28,8 +28,6 @@ Each scan source is an independent toggle. Turn on only what you need; the more 
 
 **Reverse Analytics Audit** asks the opposite question: which columns exist in Analytics but have no matching CRM field? That surfaces orphans left behind by a renamed or deleted field, so it's where to start if your Analytics sync broke and you don't know why. It runs standalone and locks out the other sources while selected.
 
-Shown as "Soon" in the UI and not yet built: CRM Dashboards, CRM Lookup Fields, and a standalone function scan.
-
 ## How confident is each result?
 
 Not every source can be equally certain, so the app never pretends otherwise. This is the single most important thing to understand when reading a verdict.
@@ -107,6 +105,7 @@ app/
   js/
     state.js         shared state object S + scan cache key
     helpers.js       DOM/URL/text utils, Connection transport, runQueue
+    sources.js       the SCANS + SOURCES registry every screen derives from
     loader.js        full-screen loader (min-hold + boot lines) and mini loader
     settings.js      persisted settings, theme picker, setup-card toggles
     scan.js          the scan pipeline for every source, cache, finishScan
@@ -115,6 +114,14 @@ app/
     reverse-audit.js the standalone Analytics -> CRM audit
     main.js          boot wiring (PageLoad, SDK init, failsafe)
 ```
+
+`sources.js` is the spine. Each scan is declared once and each kind of
+match is declared once, and the field chips, verdict wording, detail
+sections, CSV export, scan summary and cache all derive themselves from
+those two tables. Adding a source means adding two entries and a matcher,
+with no other file to remember. Analytics is deliberately outside the
+registry: it is the only source answering through Zoho's dependency engine
+rather than a name match, so its results carry a different shape.
 
 The scan only fetches deep detail for Analytics **Tables** (whose `columns` carry the `columnId`s) and **Query Tables** (their SQL). Every other view type is reached through the dependents API instead, which keeps the scan light.
 
@@ -128,7 +135,7 @@ Key API references:
 - Custom headers such as `ZANALYTICS-ORGID` pass through `CONNECTION.invoke` correctly.
 - Analytics dependent views inside dashboards ("KPI widgets") come back with a bare numeric `viewName`; the UI collapses them into a count rather than showing meaningless ID rows.
 - CRM reports are filtered by recency **before** fetching detail: not run in the past year, or never run and created over 6 months ago, means skipped. A year of unused reports would otherwise be hundreds of detail calls.
-- List endpoints page at 200 per page (`info.more_records`). Automations paginate; the functions list call does not yet, so an org with 200+ functions would truncate.
+- List endpoints page at 200 per page (`info.more_records`). Every list call goes through one shared paginator, so no source truncates on a large org.
 - Blueprint per-transition mandatory fields aren't included: that API needs transition IDs with no documented way to enumerate them.
 
 ## Competition deliverables (due Aug 24)
