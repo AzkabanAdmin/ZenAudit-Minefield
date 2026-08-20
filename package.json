@@ -4,7 +4,8 @@
   "description": "Zoho CRM web tab widget that shows where every CRM field is actually used before you delete it. Dependencies here are the local zet dev server only; nothing ships to the widget.",
   "private": true,
   "scripts": {
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "test": "node test/boot.test.js && node test/paging.test.js && node test/verdicts.test.js"
   },
   "dependencies": {
     "body-parser": "^1.14.2",

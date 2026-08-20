@@ -88,6 +88,30 @@ Open `https://127.0.0.1:5000` once and accept the self-signed certificate, then 
 
 To ship: `zet validate`, then `zet pack`, and upload `dist/FieldCheck.zip` with Hosting set to Zoho. CRM serves the zip's `app/` folder as the web root, so set the Index Page to `/widget.html`, **not** `/app/widget.html`. Every change needs a re-pack and re-upload, so use the external URL during development.
 
+## Tests
+
+The widget has no build step and no browser test runner, so the logic
+files are exercised in Node against a small DOM and SDK shim.
+
+```
+npm test
+```
+
+- `test/boot.test.js` loads every script in the exact order `widget.html`
+  does, runs the `PageLoad` handler, and checks that every entry the two
+  registries declare resolves to something real. This is what catches a
+  load-order or missing-identifier mistake.
+- `test/paging.test.js` exercises the shared paginator: multi-page
+  collection, stopping on `more_records`, both query-separator forms, and a
+  missing response key.
+- `test/verdicts.test.js` builds a synthetic org where one field is used by
+  seven different sources, one is synced but unreferenced, and one is
+  absent from Analytics, then asserts the hit counts, categories, chips,
+  detail sections and CSV rows that come out.
+
+These cover the analysis layer, not the live API calls, which need a real
+org.
+
 ## Architecture
 
 No backend and no build step. Plain files loaded as ordered script tags sharing top-level globals.
