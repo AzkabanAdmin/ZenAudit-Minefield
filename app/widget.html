@@ -16,10 +16,10 @@
 <body class="dark">
   <header>
     <img id="logo" src="assets/zenatta-logo.png" alt="Zenatta">
-    <span style="width:1px;height:26px;background:rgba(255,255,255,.25)"></span>
+    <span class="header-rule" aria-hidden="true"></span>
     <h1>ZenAudit MineField</h1>
     <span class="tag">Know what breaks before you delete a field</span>
-    <span id="sdk-tag" class="tag" style="margin-left:auto">connecting&hellip;</span>
+    <span id="sdk-tag" class="tag">connecting&hellip;</span>
     <div class="theme-picker" id="theme-picker">
       <button id="theme-toggle" type="button" aria-haspopup="true" aria-expanded="false" title="Change theme">
         <span id="theme-toggle-icon">&#127769;</span>
@@ -29,20 +29,22 @@
         </svg>
       </button>
       <div class="theme-menu hidden" id="theme-menu" role="menu">
-        <button class="theme-option" type="button" data-theme="dark" role="menuitemradio">
+        <button class="theme-option" type="button" data-theme="dark" role="menuitemradio" aria-checked="false">
           <span class="t-icon">&#127769;</span><span class="t-label">Dark</span>
         </button>
-        <button class="theme-option" type="button" data-theme="light" role="menuitemradio">
+        <button class="theme-option" type="button" data-theme="light" role="menuitemradio" aria-checked="false">
           <span class="t-icon">&#9728;&#65039;</span><span class="t-label">Light</span>
         </button>
-        <button class="theme-option" type="button" data-theme="zen" role="menuitemradio">
+        <button class="theme-option" type="button" data-theme="zen" role="menuitemradio" aria-checked="false">
           <span class="t-icon">&#127807;</span><span class="t-label">Zen</span>
         </button>
       </div>
     </div>
   </header>
 
-  <!-- ============ Loader overlay ============ -->
+  <!-- ********************************************************************
+       Loader_Overlay
+       ******************************************************************** -->
   <div id="loader">
     <div class="loader-stage">
       <div class="loader-scene">
@@ -123,7 +125,7 @@
     </div>
   </div>
 
-  <!-- Backdrop-free mini loader for in-page work like Check All -->
+  <!-- backdrop-free mini loader, for in-page work like Check All -->
   <div id="mini-loader" class="hidden">
     <div id="mini-otter"></div>
     <div class="loader-bar mini">
@@ -133,7 +135,9 @@
   </div>
 
   <div class="wrap">
-    <!-- ============ Setup / scan ============ -->
+    <!-- ********************************************************************
+         Setup_And_Scan
+         ******************************************************************** -->
     <div class="card" id="setup-card">
       <h2><span class="step">1</span>Connect and scan <button class="link hidden" id="btn-toggle-setup">Settings</button></h2>
       <div class="setup-cols">
@@ -265,7 +269,9 @@
 
     <button class="secondary" id="btn-back-to-menu">&larr; Back to Main Menu</button>
 
-    <!-- ============ Results ============ -->
+    <!-- ********************************************************************
+         Results
+         ******************************************************************** -->
     <div class="cols hidden" id="results">
       <div class="card panel-fields">
         <h2><span class="step">2</span>Fields</h2>
@@ -278,9 +284,10 @@
           <button id="btn-export" class="secondary" title="Export checked fields as CSV">Export CSV</button>
         </div>
         <div class="filter-row" id="field-filters"></div>
-        <input type="text" id="field-search" placeholder="Filter fields&hellip;" style="width:100%; margin-top:8px">
+        <input type="text" id="field-search" aria-label="Filter fields by label or API name"
+          placeholder="Filter fields&hellip;">
         <div class="progress" id="check-progress"></div>
-        <div id="field-list"></div>
+        <div id="field-list" role="list" aria-label="Fields in the selected module"></div>
       </div>
 
       <div class="card panel-detail">
@@ -291,7 +298,9 @@
       </div>
     </div>
 
-    <!-- ============ Reverse Analytics Audit results ============ -->
+    <!-- ********************************************************************
+         Reverse_Analytics_Audit_Results
+         ******************************************************************** -->
     <div class="card hidden" id="reverse-audit-card">
       <h2><span class="step">2</span>Reverse Analytics Audit</h2>
       <p class="section-note">Analytics tables matched by name to a CRM module, and which columns in each have no

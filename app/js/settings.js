@@ -59,7 +59,9 @@ function applyTheme(t) {
   $("theme-toggle-icon").innerHTML = THEME_META[t].icon;
   $("theme-toggle").title = "Theme: " + THEME_META[t].label;
   document.querySelectorAll(".theme-option").forEach(function (opt) {
-    opt.classList.toggle("active", opt.dataset.theme === t);
+    var on = opt.dataset.theme === t;
+    opt.classList.toggle("active", on);
+    opt.setAttribute("aria-checked", on ? "true" : "false");
   });
 }
 function prefersReducedMotion() {

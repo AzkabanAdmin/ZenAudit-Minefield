@@ -141,10 +141,16 @@ function renderFieldList() {
   }).forEach(function (f) {
     var row = document.createElement("div");
     row.className = "field-row" + (S.activeField === f.api_name ? " active" : "");
+    //==========// a row is an interactive control, so it needs a role and a tab stop
+    row.setAttribute("role", "listitem");
+    row.setAttribute("tabindex", "0");
     row.innerHTML = "<div class='fname'>" + esc(f.label) +
       "<small>" + esc(f.api_name) + " &middot; " + esc(f.type) + (f.custom ? " &middot; custom" : "") +
       "</small></div>" + chipFor(f);
     row.onclick = function () { openField(f); };
+    row.onkeydown = function (e) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openField(f); }
+    };
     list.appendChild(row);
   });
 }

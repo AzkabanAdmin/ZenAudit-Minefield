@@ -1,4 +1,9 @@
-/* ============ Zenatta Field Check — base / light theme ============ */
+/* **********************************************************************
+ *   Base_And_Light_Theme
+ *
+ *   The light palette is the base every other theme overrides. Dark is
+ *   the shipped default, applied as a body class.
+ ********************************************************************** */
 /* Brand: Zenatta forest green #044B30, action green #0A5E3C (hover #0F8656),
    mint #02D58E, gradient #02D58E→#01784E. Raleway headings, Ubuntu body. */
 * { box-sizing: border-box; }
@@ -18,7 +23,10 @@ body {
 }
 h1, h2, h3, .step, button { font-family: var(--font-display); }
 
-/* header — forest green brand band in BOTH themes */
+/* **********************************************************************
+ *   Header
+ ********************************************************************** */
+/* the brand band stays forest green in every theme */
 header {
   background: var(--zen-green); border-bottom: 1px solid rgba(2, 213, 142, .25);
   padding: 14px 22px; display: flex; align-items: center; gap: 12px; color: #fff;
@@ -26,6 +34,8 @@ header {
 header h1 { font-size: 18px; margin: 0; font-weight: 700; color: #fff; }
 header .tag { color: rgba(255, 255, 255, .78); font-size: 13px; }
 #logo { display: block; flex: 0 0 auto; height: 28px; width: auto; filter: brightness(0) invert(1); }
+.header-rule { flex: 0 0 auto; width: 1px; height: 26px; background: rgba(255, 255, 255, .25); }
+#sdk-tag { margin-left: auto; }
 #sdk-tag {
   background: var(--grad-brand); color: #04140d !important; font-weight: 700;
   border-radius: 999px; padding: 4px 13px; font-size: 12.5px;
@@ -97,7 +107,10 @@ button.secondary:hover:not(:disabled) { background: var(--zen-green-btn); color:
 #setup-card h2 { display: flex; align-items: center; margin-bottom: 20px; }
 #setup-card h2 .link { margin-left: auto; text-decoration: none; font-weight: 700; }
 
-/* three-column setup layout: connections / scan sources / run */
+/* **********************************************************************
+ *   Setup_Card
+ ********************************************************************** */
+/* three columns: connections / scan sources / run */
 .setup-cols { display: flex; gap: 30px; align-items: stretch; }
 .setup-col { min-width: 0; }
 .col-label {
@@ -171,9 +184,13 @@ button.secondary:hover:not(:disabled) { background: var(--zen-green-btn); color:
 .cols { display: flex; gap: 16px; align-items: flex-start; }
 .panel-fields { flex: 0 0 380px; max-width: 380px; }
 .panel-detail { flex: 1 1 auto; min-width: 0; }
+#field-search { width: 100%; margin-top: 8px; }
 #field-list { max-height: 560px; overflow: auto; margin-top: 12px; }
 
-/* field rows — separated cards, not merged lines */
+/* **********************************************************************
+ *   Field_Rows_And_Chips
+ ********************************************************************** */
+/* separated cards rather than merged lines */
 .field-row {
   display: flex; align-items: center; justify-content: space-between; gap: 9px;
   padding: 11px 14px; margin-bottom: 8px; cursor: pointer;
@@ -181,6 +198,8 @@ button.secondary:hover:not(:disabled) { background: var(--zen-green-btn); color:
   transition: box-shadow .15s, border-color .15s;
 }
 .field-row:hover { box-shadow: 0 2px 8px rgba(4, 75, 48, .10); }
+.field-row:focus-visible { outline: 2px solid var(--zen-green-bright); outline-offset: 2px; }
+button:focus-visible, .src-tile:focus-within { outline: 2px solid var(--zen-green-bright); outline-offset: 2px; }
 .field-row.active { background: #E6F4EE; border-color: var(--zen-green-btn); }
 .field-row .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .field-row .fname small { color: #6b7671; display: block; font-size: 12px; font-weight: 400; }
@@ -205,7 +224,9 @@ button.secondary:hover:not(:disabled) { background: var(--zen-green-btn); color:
 .chip.na { background: #F1F2F2; color: #6b7671; }
 .chip.unchecked { background: #F1F2F2; color: #7a8580; }
 
-/* verdict — brand banner */
+/* **********************************************************************
+ *   Verdict_Banner
+ ********************************************************************** */
 .verdict { padding: 18px 20px; border-radius: 14px; margin-bottom: 14px; font-size: 15px; }
 .verdict.used { display: flex; align-items: center; flex-wrap: wrap; gap: 14px 24px; padding: 20px 24px; }
 .verdict .vnum {
@@ -231,7 +252,9 @@ button.secondary:hover:not(:disabled) { background: var(--zen-green-btn); color:
 .vb-link:hover { background: rgba(2, 213, 142, .22) !important; }
 .vb-link:active { transform: scale(.97); }
 
-/* usage rows */
+/* **********************************************************************
+ *   Usage_Rows
+ ********************************************************************** */
 .usage {
   border: 1px solid #DDE0E1; border-radius: 12px; padding: 12px 14px; margin-bottom: 10px;
   display: flex; justify-content: space-between; gap: 12px; align-items: flex-start;
@@ -262,7 +285,12 @@ h3.usage-group {
 }
 body.dark .usage-group .gcount { background: var(--zen-mint); color: #04140d; }
 .hidden { display: none; }
-/* collapsed setup card -> slim one-line status bar */
+/* **********************************************************************
+ *   Collapsed_Setup_Card
+ *
+ *   Collapsing turns the whole setup card into a slim one-line status
+ *   bar, which is what gives the results view its full width.
+ ********************************************************************** */
 #setup-card.collapsed { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; padding: 10px 18px; }
 #setup-card.collapsed .setup-cols, #setup-card.collapsed .col-run { display: contents; }
 #setup-card.collapsed .col-connections, #setup-card.collapsed .col-sources,
@@ -323,7 +351,11 @@ body.dark .usage-group .gcount { background: var(--zen-mint); color: #04140d; }
 .ws-pill.on { background: #E6F4EE; border-color: var(--zen-green-btn); color: var(--zen-green-btn); font-weight: 600; }
 .ws-pill.on::before { content: "\2713\00a0"; }
 
-/* ============ dark theme (default) ============ */
+/* **********************************************************************
+ *   Dark_Theme
+ *
+ *   The shipped default.
+ ********************************************************************** */
 body.dark { background: #0b1310; color: #e8efeb; scrollbar-color: #24352c transparent; }
 body.dark .card { background: #0f1a15; border-color: #1d2b24; box-shadow: 0 6px 24px rgba(0, 0, 0, .35); }
 body.dark label { color: #9fb4a9; }
@@ -413,7 +445,11 @@ body.dark .filter-row button:hover:not(.active) { border-color: var(--zen-mint);
 body.dark .filter-row button.active { background: var(--zen-mint); border-color: var(--zen-mint); color: #04140d; }
 body.dark .error { background: rgba(248, 113, 113, .14); color: #f5b5b5; }
 
-/* ============ zen theme (warm white + sage) ============ */
+/* **********************************************************************
+ *   Zen_Theme
+ *
+ *   Warm white and sage.
+ ********************************************************************** */
 /* A third option alongside dark and light, not a replacement for either.
    Palette: warm white #FBF7EC, sage #4B7A48 (bright #6E9468, deep #2F4A2C),
    clay highlight #D99F6E. Sage is the one primary accent everywhere the
@@ -541,7 +577,9 @@ body.zen .theme-option { color: #332B22; }
 body.zen .theme-option:hover:not(:disabled) { background: #F5F0E3; }
 body.zen .theme-option.active { background: #E3ECE0; color: #2F4A2C; }
 
-/* ============ loader overlay ============ */
+/* **********************************************************************
+ *   Loader_Overlay
+ ********************************************************************** */
 #loader {
   position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
   background: rgba(246, 248, 247, .93); backdrop-filter: blur(3px);
@@ -627,7 +665,9 @@ body.dark #mini-status { background: rgba(11, 19, 16, .88); color: var(--zen-min
   .otter-wrap svg, #loader .pill, .loader-shadow, #loader-fill.indet, #mini-otter svg { animation: none; }
 }
 
-/* ============ theme-switch circular reveal ============ */
+/* **********************************************************************
+ *   Theme_Switch_Reveal
+ ********************************************************************** */
 /* Picking a theme from the dropdown grows a circle from the clicked option
    outward over the whole page. The browser's default cross-fade is turned
    off on both snapshots so only the clip-path circle we animate from JS

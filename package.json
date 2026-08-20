@@ -1,6 +1,7 @@
 {
-  "name": "zoho-app",
-  "version": "0.0.1",
+  "name": "zenaudit-minefield",
+  "version": "1.0.0",
+  "description": "Zoho CRM web tab widget that shows where every CRM field is actually used before you delete it. Dependencies here are the local zet dev server only; nothing ships to the widget.",
   "private": true,
   "scripts": {
     "start": "node server/index.js"
