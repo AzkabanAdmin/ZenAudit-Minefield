@@ -101,7 +101,9 @@ for (const f of ["state.js", "helpers.js", "sources.js", "loader.js", "fields.js
 
 const S = sandbox.S;
 
-/* ===== synthetic org ===== */
+/* **********************************************************************
+ *   Synthetic_Org
+ ********************************************************************** */
 S.modules = [{ api_name: "Deals", id: "M_DEALS", plural_label: "Deals", singular_label: "Deal" }];
 $el("module-pick").value = "Deals";
 S.scannedAt = "Aug 20, 2026, 4:00 PM";
@@ -140,7 +142,9 @@ S.fields = [
   { api_name: "Ghost_Field", label: "Ghost Field", type: "text", custom: true },
 ];
 
-/* ===== assertions ===== */
+/* **********************************************************************
+ *   Assertions
+ ********************************************************************** */
 let failures = 0;
 function check(name, actual, expected) {
   const ok = actual === expected;
@@ -155,7 +159,8 @@ Promise.all(S.fields.map((f) => sandbox.checkField(f))).then(() => {
   const ghost = S.results["Ghost_Field"];
 
   console.log("\n--- Stage (used everywhere) ---");
-  // 1 dependent view + 1 sql + 1 function + 1 trigger + 1 criteria + 1 blueprint + 1 webhook + 1 cwTrigger = 8
+  //==========// 1 view + 1 sql + 1 function + 1 trigger + 1 criteria + 1 blueprint
+  //==========// + 1 webhook + 1 connected trigger = 8
   check("hitCount(Stage)", sandbox.hitCount(stage), 8);
   check("categoryOf(Stage)", sandbox.categoryOf(S.fields[0]), "used");
   const u = sandbox.usageCounts(stage);
