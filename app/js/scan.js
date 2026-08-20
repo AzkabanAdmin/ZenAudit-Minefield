@@ -710,25 +710,17 @@ function extractCode(x) {
   return pool.sort(function (a, b) { return b.length - a.length; })[0];
 }
 
-var loggedFirstCodeResp = false;
 function fetchFunctionCode(fn) {
   var conn = $("conn-crm").value.trim();
   var base = crmApiBase() + "/crm/v8/settings/functions/" + fn.id;
   return invokeRaw(conn, base + "/code").then(function (resp) {
-    if (!loggedFirstCodeResp) {
-      loggedFirstCodeResp = true;
-      console.log("FieldCheck: raw /code response for", fn.name, resp);
-    }
-    // File downloads resolve as the raw text body itself; JSON APIs
-    // resolve as {details: {statusMessage: ...}}. Handle both.
+    //==========// file downloads resolve as raw text, JSON APIs as {details:{statusMessage}}
     var payload = (resp && resp.details) ? (resp.details.statusMessage || resp.details) : resp;
     var code = extractCode(payload);
-    if (code) return { code: code, raw: null };
-    // Fallback: the single-function endpoint returns JSON that can carry the script
+    if (code) return code;
+    //==========// fall back to the single-function endpoint, whose JSON can also carry the script
     return invokeRaw(conn, base + "?source=crm").then(function (r2) {
-      var c2 = extractCode(r2 && r2.details && r2.details.statusMessage) ||
-               extractCode(r2 && r2.details);
-      return { code: c2, raw: c2 ? null : JSON.stringify({ codeResp: resp, detailResp: r2 }).slice(0, 800) };
+      return extractCode(r2 && r2.details && r2.details.statusMessage) || extractCode(r2 && r2.details);
     });
   });
 }
@@ -737,22 +729,15 @@ function scanFunctions() {
   S.functions = []; S.functionsScanned = false;
   $("scan-progress").innerHTML = "Listing CRM Deluge functions&hellip;";
   showLoader("Listing CRM Deluge functions…");
-  var failures = 0, firstSample = "";
+  var failures = 0;
   return crmGet("/settings/functions").then(function (body) {
     var fns = (body && body.functions) || [];
     var listed = fns.length;
     return runQueue(fns, function (fn) {
-      return fetchFunctionCode(fn).then(function (out) {
-        if (out.code) {
-          S.functions.push({ id: fn.id, name: fn.display_name || fn.name, code: out.code });
-        } else {
-          failures++;
-          if (!firstSample && out.raw) firstSample = out.raw;
-        }
-      }).catch(function (err) {
-        failures++;
-        if (!firstSample) firstSample = String(err && err.message || err).slice(0, 800);
-      });
+      return fetchFunctionCode(fn).then(function (code) {
+        if (code) S.functions.push({ id: fn.id, name: fn.display_name || fn.name, code: code });
+        else failures++;
+      }).catch(function () { failures++; });
     }, function (i, n, fn) {
       $("scan-progress").innerHTML = "Reading function code <b>" + i + " / " + n + "</b> &mdash; " +
         esc(fn.display_name || fn.name);
@@ -761,8 +746,7 @@ function scanFunctions() {
       S.functionsScanned = true;
       if (failures > 0) {
         showError("Read code for " + S.functions.length + " of " + listed + " functions." +
-          (S.functions.length === 0 ? " None were readable, so function matching is inactive." : "") +
-          (firstSample ? "\nFirst unreadable response sample:\n" + firstSample : ""));
+          (S.functions.length === 0 ? " None were readable, so function matching is inactive." : ""));
       }
     });
   }).catch(function (err) {
