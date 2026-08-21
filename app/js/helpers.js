@@ -72,12 +72,33 @@ function clearError() { $("setup-error").classList.add("hidden"); }
  *   portable: an org configures two Connections once and nothing else.
  */
 
+//==========// The Connection wrapper reports its own outcome separately from the
+//==========// wrapped API's body, so an empty body can still be a successful call.
+function invokeSucceeded(resp) {
+  if (!resp) return false;
+  if (resp.code && String(resp.code).toUpperCase() !== "SUCCESS") return false;
+  if (resp.status && String(resp.status).toLowerCase() !== "success") return false;
+  return !!(resp.code || resp.status);
+}
+
+//==========// Zoho signals a rejected call inside the body too, either as an
+//==========// explicit failure status or as an error code paired with a message.
+function isErrorBody(body) {
+  if (!body || typeof body !== "object") return false;
+  if (body.status === "failure") return true;
+  return typeof body.code === "string" && body.code.toUpperCase() !== "SUCCESS";
+}
+
 function invokeConn(connName, url, headers) {
   var req = { url: url, method: "GET", param_type: 1, parameters: {}, headers: headers || {} };
   return ZOHO.CRM.CONNECTION.invoke(connName, req).then(function (resp) {
     var body = resp && resp.details && resp.details.statusMessage;
+    //==========// A list with no rows comes back as 204 No Content, which arrives
+    //==========// here as an empty statusMessage. That is a real empty result, not
+    //==========// a failure, so it must not be reported as one.
+    if ((body === "" || body == null) && invokeSucceeded(resp)) return {};
     if (typeof body === "string") { try { body = JSON.parse(body); } catch (e) { /* raw text, e.g. function code */ } }
-    if (!body || body.status === "failure") {
+    if (!body || isErrorBody(body)) {
       throw new Error("API error at " + url + "\n" + JSON.stringify(body || resp).slice(0, 500));
     }
     return body;

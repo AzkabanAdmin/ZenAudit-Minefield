@@ -17,6 +17,14 @@
  *   dependents) and stay explicit in fields.js and ui.js.
  ********************************************************************** */
 
+//==========// Name a field the way a reader needs it: matching is done on the API
+//==========// name, so show that, but keep the label when the two differ.
+function fieldRef(f) {
+  return norm(f.label) === norm(f.api_name)
+    ? esc(f.api_name)
+    : esc(f.api_name) + " (" + esc(f.label) + ")";
+}
+
 //==========// pluralize a count's unit: qty(3, "rule") -> "rules"
 function qty(n, unit) { return unit + (n === 1 ? "" : "s"); }
 
@@ -112,7 +120,7 @@ var SOURCES = [
     chip: "src-fn", icon: "function",
     label: "CRM functions",
     unit: "CRM function reference",
-    heading: function (f) { return "CRM Deluge functions referencing " + esc(f.api_name); },
+    heading: function (f) { return "CRM Deluge functions referencing " + fieldRef(f); },
     countUnit: "function",
     card: function (h) {
       return usageCard("function" + (h.count > 1 ? " (" + h.count + " references)" : ""),
@@ -125,7 +133,7 @@ var SOURCES = [
     chip: "src-rpt", icon: "report",
     label: "CRM reports",
     unit: "CRM report reference",
-    heading: function (f) { return "CRM reports referencing " + esc(f.api_name); },
+    heading: function (f) { return "CRM reports referencing " + fieldRef(f); },
     countUnit: "report",
     card: function (h) {
       return usageCard("report " + h.kind + (h.confident ? "" : " - unverified match"),
@@ -138,7 +146,7 @@ var SOURCES = [
     chip: "src-wf", icon: "workflow",
     label: "workflow field updates",
     unit: "workflow field update reference",
-    heading: function (f) { return "Workflow field updates referencing " + esc(f.api_name); },
+    heading: function (f) { return "Workflow field updates referencing " + fieldRef(f); },
     countUnit: "field update",
     card: function (h) {
       var val = Array.isArray(h.value) ? h.value.join(", ") : h.value;
@@ -153,7 +161,7 @@ var SOURCES = [
     label: "workflow rule triggers",
     unit: "workflow rule trigger",
     tip: function (n) { return "used as a trigger in " + n + qty(n, " workflow rule"); },
-    heading: function (f) { return "Workflow rules triggered off " + esc(f.api_name); },
+    heading: function (f) { return "Workflow rules triggered off " + fieldRef(f); },
     countUnit: "rule",
     card: function (h) {
       return usageCard("rule trigger", h.name, null, workflowRulePageUrl(h.id), "", "Open workflow rule &rarr;");
@@ -166,7 +174,7 @@ var SOURCES = [
     label: "workflow rule criteria",
     unit: "workflow rule criteria",
     tip: function (n) { return "used in firing criteria for " + n + qty(n, " workflow rule"); },
-    heading: function (f) { return "Workflow rules with firing criteria on " + esc(f.api_name); },
+    heading: function (f) { return "Workflow rules with firing criteria on " + fieldRef(f); },
     countUnit: "rule",
     card: function (h) {
       return usageCard("rule criteria", h.name, null, workflowRulePageUrl(h.id), "", "Open workflow rule &rarr;");
@@ -179,7 +187,7 @@ var SOURCES = [
     label: "scoring rules",
     unit: "scoring rule",
     tip: function (n) { return "used in scoring criteria for " + n + qty(n, " scoring rule"); },
-    heading: function (f) { return "Scoring rules referencing " + esc(f.api_name); },
+    heading: function (f) { return "Scoring rules referencing " + fieldRef(f); },
     countUnit: "rule",
     card: function (h) {
       return usageCard("scoring rule", h.name, null, scoringRulePageUrl(h.id), "", "Open scoring rule &rarr;");
@@ -192,7 +200,7 @@ var SOURCES = [
     label: "blueprints",
     unit: "blueprint",
     tip: function (n) { return "governs " + n + qty(n, " blueprint"); },
-    heading: function (f) { return "Blueprints governed by " + esc(f.api_name); },
+    heading: function (f) { return "Blueprints governed by " + fieldRef(f); },
     countUnit: "blueprint",
     card: function (h) {
       return usageCard("blueprint", h.name, h.pipelineName || null,
@@ -208,7 +216,7 @@ var SOURCES = [
     label: "webhooks",
     unit: "webhook",
     tip: function (n) { return "referenced in " + n + qty(n, " webhook"); },
-    heading: function (f) { return "Webhooks referencing " + esc(f.api_name); },
+    heading: function (f) { return "Webhooks referencing " + fieldRef(f); },
     countUnit: "webhook",
     card: function (h) { return usageCard("webhook", h.name, null, null, ""); },
     csv: function (h) { return "webhook: " + h.name; }
@@ -219,7 +227,7 @@ var SOURCES = [
     label: "connected workflow triggers",
     unit: "connected workflow trigger",
     tip: function (n) { return "used as a trigger in " + n + qty(n, " connected workflow rule"); },
-    heading: function (f) { return "Connected workflow rules triggered off " + esc(f.api_name); },
+    heading: function (f) { return "Connected workflow rules triggered off " + fieldRef(f); },
     countUnit: "rule",
     card: function (h) { return usageCard("connected automation trigger", h.name, null, null, ""); },
     csv: function (h) { return "connected workflow trigger: " + h.name; }
@@ -230,7 +238,7 @@ var SOURCES = [
     label: "connected workflow criteria",
     unit: "connected workflow criteria",
     tip: function (n) { return "used in firing criteria for " + n + qty(n, " connected workflow rule"); },
-    heading: function (f) { return "Connected workflow rules with firing criteria on " + esc(f.api_name); },
+    heading: function (f) { return "Connected workflow rules with firing criteria on " + fieldRef(f); },
     countUnit: "rule",
     card: function (h) { return usageCard("connected automation criteria", h.name, null, null, ""); },
     csv: function (h) { return "connected workflow criteria: " + h.name; }

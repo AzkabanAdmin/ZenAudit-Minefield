@@ -147,38 +147,128 @@ function extractDelugeModuleVars(code) {
 }
 
 function delugeModuleVarsFor(fn) {
-  if (!fn._moduleVars) fn._moduleVars = extractDelugeModuleVars(fn.code);
+  if (!fn._moduleVars) fn._moduleVars = extractDelugeModuleVars(searchableCode(fn));
   return fn._moduleVars;
 }
 
-//==========// False only when every qualified access provably belongs to another
-//==========// module. An unqualified access, or one through a variable we couldn't
-//==========// resolve, keeps the hit: this only ever removes disprovable matches.
-function functionReferencesFieldForModule(code, apiName, currentModule, moduleVars) {
-  var qualifiedRe = new RegExp("([A-Za-z_]\\w*)\\s*\\.\\s*(?:get\\(\\s*[\"']" + escRe(apiName) + "[\"']\\s*\\)|" +
-    "put\\(\\s*[\"']" + escRe(apiName) + "[\"']|" + escRe(apiName) + "\\b)", "g");
-  var sawQualified = false, sawOtherModuleOnly = true;
-  var m;
-  while ((m = qualifiedRe.exec(code))) {
-    sawQualified = true;
-    var mod = moduleVars[m[1]];
-    if (!mod || mod === currentModule) sawOtherModuleOnly = false;
+//==========// Comments are prose, not references. A field named Name otherwise
+//==========// matches every "// Name (required)" note in the org's scripts. Quoted
+//==========// strings are left alone, since get("Name") and criteria strings are
+//==========// both real references and both live inside quotes.
+function stripDelugeComments(code) {
+  var out = "", i = 0, quote = null;
+  while (i < code.length) {
+    var c = code[i], next = code[i + 1];
+    if (quote) {
+      //==========// keep the string verbatim, honouring backslash escapes
+      out += c;
+      if (c === "\\" && next != null) { out += next; i += 2; continue; }
+      if (c === quote) quote = null;
+      i++;
+      continue;
+    }
+    if (c === '"' || c === "'") { quote = c; out += c; i++; continue; }
+    if (c === "/" && next === "/") {
+      while (i < code.length && code[i] !== "\n") i++;
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      i += 2;
+      while (i < code.length && !(code[i] === "*" && code[i + 1] === "/")) i++;
+      i += 2;
+      //==========// leave a space so tokens either side don't fuse together
+      out += " ";
+      continue;
+    }
+    out += c;
+    i++;
   }
-  return !(sawQualified && sawOtherModuleOnly);
+  return out;
 }
 
-//==========// Deluge names fields by API name only: record.get("Stage"), input.Stage
+//==========// comment-free source, computed once per function
+function searchableCode(fn) {
+  if (fn._searchable == null) fn._searchable = stripDelugeComments(fn.code);
+  return fn._searchable;
+}
+
+//==========// Deluge names fields by API name only: record.get("Stage"), input.Stage.
+//==========// Case-sensitive on purpose: Deluge field access is, so a lowercase
+//==========// get("name") provably is not a reference to a field named Name.
+function fieldRefRegex(apiName, flags) {
+  return new RegExp("(^|[^A-Za-z0-9_])" + escRe(apiName) + "([^A-Za-z0-9_]|$)", flags);
+}
+
+/*
+ *   A match counts only when the module is part of the reference.
+ *
+ *   Analytics gets that guarantee for free: it finds the module's synced
+ *   table first, then looks for the column inside it, so the module is
+ *   structurally part of the match. A text search over Deluge has no such
+ *   anchor, and a field with a generic API name like Name otherwise
+ *   matches every prose string and local variable in the org.
+ *
+ *   So attribution is required rather than merely preferred. Two forms
+ *   carry the module:
+ *
+ *     A. an access through a variable Deluge itself ties to this module,
+ *        such as inv = zoho.crm.getRecordById("Invoices", id) followed by
+ *        inv.get("Name"), including a map later passed to createRecord or
+ *        updateRecord for this module
+ *     B. a single zoho.crm call naming both the module and the field, such
+ *        as searchRecords("Invoices", "(Name:equals:INV-1)")
+ *
+ *   Anything else is dropped. That trades some recall for a verdict you
+ *   can act on: a bare input.Name, whose module is only implied by how the
+ *   function is wired to a workflow, is not attributable and will be
+ *   missed. Analytics and the automation sources are unaffected.
+ */
+function attributedRefs(code, apiName, currentModule, moduleVars) {
+  var refs = [];
+  var seen = {};
+
+  //==========// Form A: <var>.get("Name"), <var>.put("Name", <var>.Name
+  var accessRe = new RegExp("([A-Za-z_]\\w*)\\s*\\.\\s*(?:get\\(\\s*[\"']" + escRe(apiName) +
+    "[\"']\\s*\\)|put\\(\\s*[\"']" + escRe(apiName) + "[\"']|" + escRe(apiName) + "\\b)", "g");
+  var m;
+  while ((m = accessRe.exec(code))) {
+    if (moduleVars[m[1]] === currentModule && !seen[m.index]) {
+      seen[m.index] = 1;
+      refs.push(m.index);
+    }
+  }
+
+  //==========// Form B: one call naming the module, with the field inside its args
+  var callRe = new RegExp("zoho\\.crm\\.\\w+\\s*\\(\\s*[\"']" + escRe(currentModule) +
+    "[\"'][^;]{0,400}", "g");
+  while ((m = callRe.exec(code))) {
+    var inner = m[0].search(fieldRefRegex(apiName, ""));
+    if (inner >= 0 && !seen[m.index + inner]) {
+      seen[m.index + inner] = 1;
+      refs.push(m.index + inner);
+    }
+  }
+
+  refs.sort(function (a, b) { return a - b; });
+  return refs;
+}
+
 function functionHits(field) {
   var hits = [];
   if (!field.api_name || field.api_name.length < 3) return hits;
-  var re = new RegExp("(^|[^A-Za-z0-9_])" + escRe(field.api_name) + "([^A-Za-z0-9_]|$)", "i");
   var currentModule = $("module-pick").value;
   S.functions.forEach(function (fn) {
-    if (!re.test(fn.code)) return;
-    if (!functionReferencesFieldForModule(fn.code, field.api_name, currentModule, delugeModuleVarsFor(fn))) return;
-    var count = (fn.code.match(new RegExp(escRe(field.api_name), "gi")) || []).length;
-    var m = fn.code.match(new RegExp(".{0,60}" + escRe(field.api_name) + ".{0,60}", "i"));
-    hits.push({ name: fn.name, count: count, snippet: m ? m[0].replace(/\s+/g, " ") : "" });
+    var code = searchableCode(fn);
+    //==========// a cheap reject before the attribution work
+    if (!fieldRefRegex(field.api_name, "").test(code)) return;
+    var refs = attributedRefs(code, field.api_name, currentModule, delugeModuleVarsFor(fn));
+    if (!refs.length) return;
+    //==========// the count and snippet describe the attributed refs, nothing else
+    var at = refs[0];
+    hits.push({
+      name: fn.name, count: refs.length,
+      snippet: code.slice(Math.max(0, at - 60), at + field.api_name.length + 60).replace(/\s+/g, " ").trim()
+    });
   });
   return hits;
 }

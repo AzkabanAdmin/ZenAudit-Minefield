@@ -137,6 +137,21 @@ function selectedWorkspaces() {
 }
 
 /* **********************************************************************
+ *   Scan_Errors
+ ********************************************************************** */
+
+//==========// One message for every scan failure. The scope is named as the most
+//==========// likely cause rather than the certain one: a scope that is already
+//==========// granted sends people hunting the wrong problem, so the underlying
+//==========// error is always shown alongside it.
+function scanFailed(what, scope, unaffected, err) {
+  showError(what + " scan failed" + (unaffected ? " (" + unaffected + " unaffected)" : "") + ". " +
+    "Most often this is the \"" + $("conn-crm").value + "\" connection missing its " + scope +
+    " scope, but check the error below before changing anything.\n" +
+    String(err && err.message || err));
+}
+
+/* **********************************************************************
  *   Paging
  *
  *   CRM list endpoints return at most 200 rows and flag the rest through
@@ -153,6 +168,12 @@ function listAllPages(path, key) {
     });
   }
   return page(1, []);
+}
+
+//==========// A few settings endpoints reject page and per_page outright with
+//==========// INVALID_REQUEST, so they are fetched in a single unparameterized call.
+function listOnePage(path, key) {
+  return crmGet(path).then(function (body) { return (body && body[key]) || []; });
 }
 
 /* **********************************************************************
@@ -355,8 +376,7 @@ function scanReports() {
       }
     });
   }).catch(function (err) {
-    showError("Reports scan failed. Check the \"" + $("conn-crm").value +
-      "\" connection and its ZohoCRM.settings.reports.READ scope.\n" + String(err && err.message || err));
+    scanFailed("Reports", "ZohoCRM.settings.reports.READ", null, err);
   });
 }
 
@@ -446,8 +466,7 @@ function scanWorkflowRules() {
       }
     });
   }).catch(function (err) {
-    showError("Workflow rules scan failed (field update matching is unaffected). Check the \"" + $("conn-crm").value +
-      "\" connection and its ZohoCRM.settings.workflow_rules.READ scope.\n" + String(err && err.message || err));
+    scanFailed("Workflow rules", "ZohoCRM.settings.workflow_rules.READ", "field update matching is", err);
   });
 }
 
@@ -471,8 +490,7 @@ function scanScoringRules() {
     });
     S.scoringRulesScanned = true;
   }).catch(function (err) {
-    showError("Scoring rules scan failed (other automation matching is unaffected). Check the \"" + $("conn-crm").value +
-      "\" connection and its ZohoCRM.settings.scoring_rules.READ scope.\n" + String(err && err.message || err));
+    scanFailed("Scoring rules", "ZohoCRM.settings.scoring_rules.READ", "other automation matching is", err);
   });
 }
 
@@ -492,8 +510,7 @@ function scanBlueprints() {
     });
     S.blueprintFieldsScanned = true;
   }).catch(function (err) {
-    showError("Blueprints scan failed (other automation matching is unaffected). Check the \"" + $("conn-crm").value +
-      "\" connection and its ZohoCRM.settings.blueprint.READ scope.\n" + String(err && err.message || err));
+    scanFailed("Blueprints", "ZohoCRM.settings.blueprint.READ", "other automation matching is", err);
   });
 }
 
@@ -532,8 +549,7 @@ function scanWebhooks() {
     });
     S.webhookActionsScanned = true;
   }).catch(function (err) {
-    showError("Webhooks scan failed (other automation matching is unaffected). Check the \"" + $("conn-crm").value +
-      "\" connection and its ZohoCRM.settings.automation_actions.READ scope.\n" + String(err && err.message || err));
+    scanFailed("Webhooks", "ZohoCRM.settings.automation_actions.READ", "other automation matching is", err);
   });
 }
 
@@ -546,7 +562,7 @@ function scanConnectedWorkflows() {
   $("scan-progress").innerHTML = "Listing connected workflows&hellip;";
   showLoader("Listing connected workflows...");
   var failures = 0;
-  return listAllPages("/settings/connected_workflows", "connected_workflows").then(function (workflows) {
+  return listOnePage("/settings/connected_workflows", "connected_workflows").then(function (workflows) {
     return runQueue(workflows, function (cw) {
       return crmGet("/settings/connected_workflows/" + cw.id + "/rules").then(function (body) {
         var rules = (body && body.rules) || [];
@@ -574,8 +590,8 @@ function scanConnectedWorkflows() {
       showError("Some connected workflow rules could not be read (other automation matching is unaffected).");
     }
   }).catch(function (err) {
-    showError("Connected workflows scan failed. Check the \"" + $("conn-crm").value +
-      "\" connection and its ZohoCRM.settings.connected_workflows.READ scope.\n" + String(err && err.message || err));
+    scanFailed("Connected workflows", "ZohoCRM.settings.connected_workflows.READ",
+      "other automation matching is", err);
   });
 }
 
@@ -725,9 +741,7 @@ function scanFunctions() {
       }
     });
   }).catch(function (err) {
-    showError("Functions scan failed (Analytics results are unaffected). Check the \"" +
-      $("conn-crm").value + "\" connection and its ZohoCRM.settings.functions.READ scope.\n" +
-      String(err && err.message || err));
+    scanFailed("Functions", "ZohoCRM.settings.functions.READ", "Analytics results are", err);
   });
 }
 
@@ -747,8 +761,8 @@ function scanWorkflowFieldUpdates() {
     });
     S.workflowFieldUpdatesScanned = true;
   }).catch(function (err) {
-    showError("Workflow field updates scan failed. Check the \"" + $("conn-crm").value +
-      "\" connection and its ZohoCRM.settings.automation_actions.READ scope.\n" + String(err && err.message || err));
+    scanFailed("Workflow field updates", "ZohoCRM.settings.automation_actions.READ",
+      "other automation matching is", err);
   });
 }
 
