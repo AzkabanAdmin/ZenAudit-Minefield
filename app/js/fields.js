@@ -229,6 +229,21 @@ function fieldRefRegex(apiName, flags) {
  *   module, such as a get through a variable tied to a different one.
  */
 
+//==========// Which modules a function is wired to by automation, keyed by
+//==========// normalized function name. CRM knows this even when the code does not,
+//==========// which is what rescues a thin automation wrapper whose whole body is a
+//==========// call to a standalone function.
+function wiredModulesFor(fnName) {
+  if (!S.workflowRulesScanned || !fnName) return [];
+  var key = norm(fnName), out = [];
+  S.workflowRules.forEach(function (r) {
+    if (!r.moduleApiName || out.indexOf(r.moduleApiName) >= 0) return;
+    var wired = (r.functionActions || []).some(function (a) { return norm(a.name) === key; });
+    if (wired) out.push(r.moduleApiName);
+  });
+  return out;
+}
+
 //==========// is the module named anywhere in a CRM API context?
 function functionTouchesModule(code, currentModule, moduleVars) {
   for (var v in moduleVars) {
@@ -255,10 +270,13 @@ function disprovenRefs(code, apiName, currentModule, moduleVars) {
   return out;
 }
 
-function attributedRefs(code, field, currentModule, moduleVars) {
+function attributedRefs(code, field, currentModule, moduleVars, wiredModules) {
   var apiName = field.api_name;
-  //==========// a standard field's generic name needs the module anchored first
-  if (!field.custom && !functionTouchesModule(code, currentModule, moduleVars)) return [];
+  //==========// a standard field's generic name needs the module anchored first,
+  //==========// either by the code itself or by how automation wires the function
+  if (!field.custom &&
+      (wiredModules || []).indexOf(currentModule) < 0 &&
+      !functionTouchesModule(code, currentModule, moduleVars)) return [];
 
   var disproven = disprovenRefs(code, apiName, currentModule, moduleVars);
   var refs = [], seen = {}, m;
@@ -280,13 +298,13 @@ function attributedRefs(code, field, currentModule, moduleVars) {
   var critRe = new RegExp("[\"'(,]" + escRe(apiName) + ":(?=[^\\s:])", "g");
   while ((m = critRe.exec(code))) add(m.index + 1);
 
-  //==========// A distinctive custom name is worth finding as a bare identifier too,
-  //==========// which catches it being passed around as a variable. Standard names
-  //==========// are far too common for this to be safe.
-  if (field.custom) {
-    var bareRe = new RegExp("(^|[^A-Za-z0-9_\.\"'])" + escRe(apiName) + "(?![A-Za-z0-9_])", "g");
-    while ((m = bareRe.exec(code))) add(m.index + m[0].lastIndexOf(apiName));
-  }
+  //==========// A bare identifier counts too, which is how a field arrives as a
+  //==========// function argument and gets passed around. This is only reached once
+  //==========// the field is either custom or the module is anchored, and measured
+  //==========// against a real 45-function org it adds real callers without adding
+  //==========// noise to generic names.
+  var bareRe = new RegExp("(^|[^A-Za-z0-9_\.\"'])" + escRe(apiName) + "(?![A-Za-z0-9_])", "g");
+  while ((m = bareRe.exec(code))) add(m.index + m[0].lastIndexOf(apiName));
 
   refs.sort(function (a, b) { return a - b; });
   return refs;
@@ -300,7 +318,8 @@ function functionHits(field) {
     var code = searchableCode(fn);
     //==========// a cheap reject before the attribution work
     if (!fieldRefRegex(field.api_name, "").test(code)) return;
-    var refs = attributedRefs(code, field, currentModule, delugeModuleVarsFor(fn));
+    var refs = attributedRefs(code, field, currentModule, delugeModuleVarsFor(fn),
+      wiredModulesFor(fn.name));
     if (!refs.length) return;
     //==========// the count and snippet describe the attributed refs, nothing else
     var at = refs[0];

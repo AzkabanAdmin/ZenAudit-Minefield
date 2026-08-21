@@ -167,8 +167,12 @@ check("a standard field still does",
 //==========// a distinctive custom name is worth finding as a bare identifier
 check("a custom field is found as a bare identifier",
   customHitsFor("Custom_Ref_ID", "Custom_Ref_ID = 5;").length, 1);
-check("a standard field is not matched as a bare identifier",
-  hitsFor("Stage", 'i = zoho.crm.getRecordById("Accounts", x); Stage = 5;').length, 0);
+//==========// a bare identifier is how a field arrives as a function argument, so
+//==========// it counts once the module is anchored, and only then
+check("a standard field matches as a bare identifier once anchored",
+  hitsFor("Stage", 'i = zoho.crm.getRecordById("Accounts", x); Stage = 5;').length, 1);
+check("a standard field does not match as a bare identifier unanchored",
+  hitsFor("Stage", "Stage = 5;").length, 0);
 
 //==========// a longer identifier or string containing the name is still not a match
 check("a custom name inside a longer identifier is not a match",
@@ -180,6 +184,45 @@ check("a custom name inside a longer string is not a match",
 check("a custom field proven to belong to another module is dropped",
   customHitsFor("Custom_Ref_ID",
     'd = zoho.crm.getRecordById("Deals", id); v = d.get("Custom_Ref_ID");').length, 0);
+
+/* **********************************************************************
+ *   Automation_Wiring_Anchors_A_Function
+ *
+ *   A thin automation wrapper names no module in its own code. CRM knows
+ *   which module fires it, so the rule action list supplies the anchor.
+ ********************************************************************** */
+
+const WRAPPER = "void automation.Call_Do_Thing(Int Account_ID, String Account_Name) " +
+  "{ Response = standalone.Do_Thing(Account_ID, Account_Name); info Response; }";
+
+function wrapperHits(module, apiName) {
+  els["module-pick"] = { value: module, selectedOptions: [{ textContent: module }] };
+  S.functions = [{ id: "9", name: "Call_Do_Thing", code: WRAPPER }];
+  return sandbox.functionHits({ api_name: apiName, label: apiName, custom: false }).length;
+}
+
+S.workflowRulesScanned = false;
+S.workflowRules = [];
+check("with no wiring known, the wrapper is not anchored",
+  wrapperHits("Accounts", "Account_Name"), 0);
+
+//==========// teach it that an Accounts rule invokes this function
+S.workflowRulesScanned = true;
+S.workflowRules = [{
+  id: "r1", name: "Call rule", moduleApiName: "Accounts", moduleId: "1",
+  triggerFields: [], criteriaFields: [],
+  functionActions: [{ name: "Call_Do_Thing", id: "a1" }],
+}];
+check("automation wiring anchors the wrapper",
+  wrapperHits("Accounts", "Account_Name"), 1);
+
+//==========// wiring to one module must not anchor a different one
+check("wiring to Accounts does not anchor Deals",
+  wrapperHits("Deals", "Deal_Name"), 0);
+
+//==========// leave state clean for anything appended later
+S.workflowRulesScanned = false;
+S.workflowRules = [];
 
 console.log(failures ? "\n" + failures + " FAILURE(S)" : "\nALL DELUGE CHECKS PASSED");
 process.exit(failures ? 1 : 0);

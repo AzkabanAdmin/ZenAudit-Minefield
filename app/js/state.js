@@ -27,7 +27,10 @@ var S = {
   //==========// only (see currentModuleId in fields.js for why)
   workflowFieldUpdates: [], // {id, name, moduleApiName, moduleId, fieldApiName, value, valueType, featureType}
   workflowFieldUpdatesScanned: false,
-  workflowRules: [], // {id, name, moduleApiName, moduleId, triggerFields:[apiName], criteriaFields:[apiName]}
+  // functionActions is what wires a function to a module: a rule on Accounts
+  // that invokes Call_X proves Call_X is about Accounts, even when its own
+  // code never names a module (see functionTouchesModule in fields.js).
+  workflowRules: [], // {id, name, moduleApiName, moduleId, triggerFields, criteriaFields, functionActions:[{name, id}]}
   workflowRulesScanned: false,
   scoringRules: [], // {id, name, moduleApiName, moduleId, criteriaFields:[apiName]}
   scoringRulesScanned: false,

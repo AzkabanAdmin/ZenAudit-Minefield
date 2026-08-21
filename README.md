@@ -19,12 +19,18 @@ Each scan source is an independent toggle. Turn on only what you need; the more 
 | Source | What it finds | Default |
 |---|---|---|
 | **Zoho Analytics** | Dependent views, formula columns, aggregate formulas, and query table SQL | On |
-| **CRM Deluge functions** | Function code that references the field's API name | On |
-| **CRM Automations** | Six sub-scans in one toggle (below) | Off |
+| **CRM functions and automations** | Deluge code plus six kinds of automation, seven sub-scans in one toggle (below) | On |
 | **CRM Reports** | Report columns and filter criteria | Off |
 | **Reverse Analytics Audit** | Runs the opposite direction, standalone (below) | Off |
 
-**CRM Automations** covers workflow field updates, workflow rules (triggers and firing criteria tracked separately, since "fires the rule" and "filters the rule" are different facts), scoring rules, blueprints, webhooks, and connected workflows (Zoho Flow-triggered rules).
+**CRM functions and automations** covers Deluge function code, workflow field updates, workflow rules (triggers and firing criteria tracked separately, since "fires the rule" and "filters the rule" are different facts), scoring rules, blueprints, webhooks, and connected workflows (Zoho Flow-triggered rules).
+
+These are one toggle rather than two because they depend on each other. A
+workflow rule's action list is what tells us which module a function
+belongs to, which matters most for a thin automation wrapper whose own
+code never names a module. Scanning function code without the automations
+would quietly weaken every function verdict, so they always run
+together.
 
 **Reverse Analytics Audit** asks the opposite question: which columns exist in Analytics but have no matching CRM field? That surfaces orphans left behind by a renamed or deleted field, so it's where to start if your Analytics sync broke and you don't know why. It runs standalone and locks out the other sources while selected.
 

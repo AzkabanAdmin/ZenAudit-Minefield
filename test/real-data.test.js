@@ -96,8 +96,16 @@ check("Deals.Deal_Name is found in all four real callers",
   names("Deals", "Deal_Name"),
   ["Automatic_Deal_Name", "Create_Or_Search_Deal_Folder",
     "Create_Or_Search_Deal_Google_Folder", "Rename Deal Record to Service and Name"]);
-check("Accounts.Account_Name is found where it is read",
-  names("Accounts", "Account_Name"), ["Test Using AC"]);
+//==========// Two of these receive Account_Name as a mapped argument and use it,
+//==========// which only a bare identifier can catch. Automatic_Deal_Name is the
+//==========// arguable one: it holds a local Account_Name taken from
+//==========// Deal.get("Account_Name"), so it is really the Deals lookup. Kept,
+//==========// because missing a real dependency costs more than showing a related
+//==========// one the reader can dismiss from the snippet.
+check("Accounts.Account_Name is found in every anchored function that names it",
+  names("Accounts", "Account_Name"),
+  ["Automatic_Deal_Name", "Create_Or_Search_Account_Folder",
+    "Create_Or_Search_Account_Google_Folder", "Test Using AC"]);
 check("Deals.Amount is found where it is read", names("Deals", "Amount"), ["Automatic_Deal_Name"]);
 
 /* **********************************************************************

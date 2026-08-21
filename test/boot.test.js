@@ -117,15 +117,15 @@ for (const sc of sandbox.SCANS) {
   if (!(sc.store in sandbox.S)) missing.push("S." + sc.store);
   if (!(sc.flag in sandbox.S)) missing.push("S." + sc.flag);
 }
-for (const fn of sandbox.AUTOMATION_SCANS) {
-  if (typeof fn !== "function") missing.push("an AUTOMATION_SCANS entry is not a function");
+for (const fn of sandbox.CRM_SCANS) {
+  if (typeof fn !== "function") missing.push("a CRM_SCANS entry is not a function");
 }
 if (missing.length) {
   failures++;
   console.log("FAIL registry wiring: " + missing.join(", "));
 } else {
   console.log("PASS registry wiring complete (" + sandbox.SOURCES.length + " sources, " +
-    sandbox.SCANS.length + " scans, " + sandbox.AUTOMATION_SCANS.length + " automation scans)");
+    sandbox.SCANS.length + " scans, " + sandbox.CRM_SCANS.length + " CRM sub-scans)");
 }
 
 console.log(failures ? "\n" + failures + " FAILURE(S)" : "\nALL BOOT CHECKS PASSED");

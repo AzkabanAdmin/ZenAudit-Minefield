@@ -181,7 +181,7 @@ function listOnePage(path, key) {
  ********************************************************************** */
 
 //==========// keep each tile's styling in sync with its checkbox
-["include-an", "include-fns", "include-reports", "include-workflows"].forEach(function (id) {
+["include-an", "include-crm", "include-reports"].forEach(function (id) {
   var cb = $(id);
   cb.onchange = function () {
     cb.closest(".src-tile").classList.toggle("on", cb.checked);
@@ -194,7 +194,7 @@ function listOnePage(path, key) {
 $("include-reverse-audit").onchange = function () {
   var cb = $("include-reverse-audit");
   var exclusive = cb.checked;
-  ["include-an", "include-fns", "include-reports", "include-workflows"].forEach(function (id) {
+  ["include-an", "include-crm", "include-reports"].forEach(function (id) {
     var other = $(id);
     other.disabled = exclusive;
     other.closest(".src-tile").classList.toggle("disabled-tile", exclusive);
@@ -217,9 +217,9 @@ function updateScanButton() {
     btn.disabled = !!(S.scanning || !S.sdkReady || !ws);
     return;
   }
-  var an = $("include-an").checked, fns = $("include-fns").checked,
-    reports = $("include-reports").checked, workflows = $("include-workflows").checked;
-  var srcs = (an ? 1 : 0) + (fns ? 1 : 0) + (reports ? 1 : 0) + (workflows ? 1 : 0);
+  var an = $("include-an").checked, crm = $("include-crm").checked,
+    reports = $("include-reports").checked;
+  var srcs = (an ? 1 : 0) + (crm ? 1 : 0) + (reports ? 1 : 0);
   var label = "Scan " + srcs + (srcs === 1 ? " source" : " sources");
   if (an) label += " · " + ws + (ws === 1 ? " workspace" : " workspaces");
   btn.textContent = srcs ? label : "Scan";
@@ -235,9 +235,13 @@ function updateScanButton() {
  *   reached later through Zoho's own dependency engine.
  ********************************************************************** */
 
-//==========// the six sub-scans behind the single CRM Automations toggle
-var AUTOMATION_SCANS = [
-  scanWorkflowFieldUpdates, scanWorkflowRules, scanScoringRules,
+//==========// The seven sub-scans behind the single CRM toggle. Deluge code and
+//==========// the automations run together on purpose: a rule's action list is what
+//==========// tells us which module a thin automation function belongs to, so
+//==========// scanning code without them would quietly weaken every function
+//==========// verdict (see wiredModulesFor in fields.js).
+var CRM_SCANS = [
+  scanFunctions, scanWorkflowFieldUpdates, scanWorkflowRules, scanScoringRules,
   scanBlueprints, scanWebhooks, scanConnectedWorkflows
 ];
 
@@ -281,9 +285,9 @@ function runReverseAuditScan() {
 }
 
 function runFieldScan() {
-  var doAn = $("include-an").checked, doFns = $("include-fns").checked,
-    doReports = $("include-reports").checked, doWorkflows = $("include-workflows").checked;
-  if (!doAn && !doFns && !doReports && !doWorkflows) { showError("Turn on at least one scan source."); return; }
+  var doAn = $("include-an").checked, doCrm = $("include-crm").checked,
+    doReports = $("include-reports").checked;
+  if (!doAn && !doCrm && !doReports) { showError("Turn on at least one scan source."); return; }
   var targets = doAn ? selectedWorkspaces() : [];
   if (doAn && !targets.length) { showError("Select at least one workspace."); return; }
   beginScan();
@@ -293,9 +297,8 @@ function runFieldScan() {
   //==========// sources run one after another to stay inside API rate limits
   var steps = [];
   if (doAn) steps.push(function () { return scanAnalytics(targets); });
-  if (doFns) steps.push(scanFunctions);
   if (doReports) steps.push(scanReports);
-  if (doWorkflows) AUTOMATION_SCANS.forEach(function (fn) { steps.push(fn); });
+  if (doCrm) CRM_SCANS.forEach(function (fn) { steps.push(fn); });
 
   runQueue(steps, function (step) { return step(); }).then(function () {
     S.scannedAt = new Date().toLocaleString();
@@ -438,6 +441,24 @@ function extractConditionFieldRefs(rule) {
  *   Automations
  ********************************************************************** */
 
+//==========// A rule's actions are nested per condition, split across instant and
+//==========// scheduled. Only entries typed "functions" name a Deluge function.
+function extractFunctionActions(rule) {
+  var out = [], seen = {};
+  (rule.conditions || []).forEach(function (c) {
+    [c.instant_actions, c.scheduled_actions].forEach(function (bucket) {
+      ((bucket && bucket.actions) || []).forEach(function (a) {
+        if (!a || a.type !== "functions" || !a.name) return;
+        var key = norm(a.name);
+        if (seen[key]) return;
+        seen[key] = 1;
+        out.push({ name: a.name, id: a.id });
+      });
+    });
+  });
+  return out;
+}
+
 function scanWorkflowRules() {
   S.workflowRules = []; S.workflowRulesScanned = false;
   $("scan-progress").innerHTML = "Listing CRM workflow rules&hellip;";
@@ -452,7 +473,8 @@ function scanWorkflowRules() {
         S.workflowRules.push({
           id: full.id, name: full.name, moduleApiName: full.module.api_name, moduleId: full.module.id,
           triggerFields: extractTriggerFieldRefs(full),
-          criteriaFields: extractConditionFieldRefs(full)
+          criteriaFields: extractConditionFieldRefs(full),
+          functionActions: extractFunctionActions(full)
         });
       }).catch(function () { failures++; });
     }, function (i, n, rule) {
