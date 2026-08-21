@@ -51,18 +51,33 @@ function currentModuleId() {
  *   Analytics_Matching
  ********************************************************************** */
 
+//==========// A table belongs to the module if its name carries any of the module's
+//==========// names. Zoho syncs a CRM module into its own table, so that is where a
+//==========// field's column lives. All three names are tested, since a table can be
+//==========// named for the plural, the singular, or the api name.
+function tableBelongsToModule(table, mod) {
+  if (!mod) return false;
+  var t = norm(table.viewName);
+  return [mod.plural_label, mod.singular_label, mod.api_name].some(function (n) {
+    var k = norm(n);
+    return !!k && t.indexOf(k) >= 0;
+  });
+}
+
+function currentModuleRecord() {
+  var apiName = $("module-pick").value;
+  return S.modules.filter(function (m) { return m.api_name === apiName; })[0] || null;
+}
+
 //==========// Columns whose normalized name equals the field's label or API name.
-//==========// Tables named like primaryHint sort first and are flagged primary;
-//==========// same-named columns elsewhere still get checked, labeled by table.
-function tableFirstMatches(fieldLabel, fieldApiName, primaryHint) {
-  var hintNorm = norm(primaryHint);
+//==========// The module's own tables sort first and are flagged primary.
+function tableFirstMatches(fieldLabel, fieldApiName, mod) {
   var wanted = {}; wanted[norm(fieldLabel)] = 1; wanted[norm(fieldApiName)] = 1;
   var matches = [];
   S.tables.forEach(function (t) {
+    var mine = tableBelongsToModule(t, mod);
     t.columns.forEach(function (c) {
-      if (wanted[norm(c.columnName)]) {
-        matches.push({ table: t, col: c, primary: norm(t.viewName).indexOf(hintNorm) >= 0 });
-      }
+      if (wanted[norm(c.columnName)]) matches.push({ table: t, col: c, primary: mine });
     });
   });
   matches.sort(function (a, b) { return (b.primary ? 1 : 0) - (a.primary ? 1 : 0); });
@@ -70,7 +85,7 @@ function tableFirstMatches(fieldLabel, fieldApiName, primaryHint) {
 }
 
 function moduleTableFirst(field) {
-  return tableFirstMatches(field.label, field.api_name, $("module-pick").selectedOptions[0].textContent);
+  return tableFirstMatches(field.label, field.api_name, currentModuleRecord());
 }
 
 //==========// Zoho's own dependency engine, the same one behind Analytics' delete warnings
@@ -450,25 +465,78 @@ var MATCHERS = {
  *   Verdicts
  ********************************************************************** */
 
+/* **********************************************************************
+ *   Which_Columns_Get_Queried
+ *
+ *   Dependents is one metered Analytics call per column, so the count of
+ *   columns queried is the whole cost of a field check.
+ *
+ *   Only the module's own tables are queried. A same-named column in an
+ *   unrelated table is coincidence far more often than dependency: in our
+ *   testing org "Created Time" exists in 146 of 233 tables, so querying
+ *   them all cost 146 calls, nearly three minutes, for that one field.
+ *   Across a whole module that was 328 calls for Accounts and 1,085 for
+ *   Invoices. Restricted to the module's tables it is 34 and 139.
+ *
+ *   The rest are not hidden. They are recorded as unchecked, every verdict
+ *   says how many were left, and they can be queried on request.
+ ********************************************************************** */
+
+function describeMatch(m) {
+  return { tableName: m.table.viewName, wsName: m.table.wsName, wsId: m.table.wsId,
+    viewId: m.table.viewId, columnId: m.col.columnId,
+    primary: m.primary, columnName: m.col.columnName };
+}
+
+function fetchDependentsInto(list, m) {
+  var base = describeMatch(m);
+  return getDependents(m).then(function (dep) {
+    base.dep = dep;
+    list.push(base);
+  }).catch(function () {
+    base.dep = null; base.error = true;
+    list.push(base);
+  });
+}
+
 function checkField(field) {
   if (S.results[field.api_name]) return Promise.resolve(S.results[field.api_name]);
   var matches = moduleTableFirst(field);
-  var result = { columns: [], sql: sqlHits(field), notSynced: matches.length === 0 };
+  var mine = matches.filter(function (m) { return m.primary; });
+  var elsewhere = matches.filter(function (m) { return !m.primary; });
+  var result = {
+    columns: [], sql: sqlHits(field),
+    //==========// synced means present in this module's own table
+    notSynced: mine.length === 0,
+    unchecked: elsewhere.map(describeMatch)
+  };
   SOURCES.forEach(function (src) { result[src.key] = MATCHERS[src.key](field); });
-  return runQueue(matches, function (m) {
-    var base = { tableName: m.table.viewName, wsName: m.table.wsName, wsId: m.table.wsId,
-      primary: m.primary, columnName: m.col.columnName };
-    return getDependents(m).then(function (dep) {
-      base.dep = dep;
-      result.columns.push(base);
-    }).catch(function () {
-      base.dep = null; base.error = true;
-      result.columns.push(base);
-    });
+  return runQueue(mine, function (m) {
+    return fetchDependentsInto(result.columns, m);
   }).then(function () {
     S.results[field.api_name] = result;
     return result;
   });
+}
+
+//==========// query the same-named columns in other tables, for one field, on request
+function checkElsewhere(field) {
+  var result = S.results[field.api_name];
+  if (!result || !result.unchecked || !result.unchecked.length) return Promise.resolve(result);
+  var pending = result.unchecked.slice();
+  result.unchecked = [];
+  return runQueue(pending, function (u) {
+    return fetchDependentsInto(result.columns, {
+      table: { viewName: u.tableName, wsName: u.wsName, wsId: u.wsId, viewId: u.viewId },
+      col: { columnId: u.columnId, columnName: u.columnName },
+      primary: false
+    });
+  }).then(function () { return result; });
+}
+
+//==========// same-named columns in other tables that were not queried
+function uncheckedCount(result) {
+  return (result && result.unchecked) ? result.unchecked.length : 0;
 }
 
 function analyticsHitCount(result) {

@@ -277,6 +277,14 @@ function verdictBreakdown(r) {
   }).join("");
 }
 
+//==========// ", and 146 same-named columns in other tables were not checked"
+function uncheckedClause(r) {
+  var n = uncheckedCount(r);
+  if (!n) return "";
+  return ", and " + n + " same-named " + qty(n, "column") +
+    " in other tables " + (n === 1 ? "was" : "were") + " not checked";
+}
+
 function verdictBanner(f, r, n) {
   var scope = scopeSummary();
   if (n > 0) {
@@ -290,12 +298,13 @@ function verdictBanner(f, r, n) {
     return "<div class='verdict na'><b>Not found in " +
       joinPhrases(["Analytics"].concat(ranScanNouns()), "or") + ".</b>" +
       "<small>No synced column named like &ldquo;" + esc(f.label) + "&rdquo; / " + esc(f.api_name) +
-      " exists in the scanned workspaces" + absenceClause(", and ") + ". Scope: " + scope + ".</small></div>";
+      " exists in this module's Analytics tables" + absenceClause(", and ") +
+      uncheckedClause(r) + ". Scope: " + scope + ".</small></div>";
   }
   return "<div class='verdict clear'><b>Safe to delete</b> as far as " +
     joinPhrases(["Analytics"].concat(ranScanNouns()), "and") + " are concerned." +
     "<small>Zoho's dependency engine reports nothing depending on the matched column(s)" +
-    absenceClause(", and ") + ". Scope: " + scope + ".</small></div>";
+    absenceClause(", and ") + uncheckedClause(r) + ". Scope: " + scope + ".</small></div>";
 }
 
 //==========// Analytics results come from the dependents API, so they render from
@@ -333,6 +342,16 @@ function analyticsSections(r) {
         c.wsName, af.parentViewId ? viewLink(c.wsId, af.parentViewId) : null, "");
     }).join("");
   });
+  //==========// disclosed, with a way to spend the calls if it matters for this field
+  if (uncheckedCount(r)) {
+    var names = r.unchecked.slice(0, 4).map(function (u) { return esc(u.tableName); }).join(", ");
+    var more = r.unchecked.length > 4 ? " and " + (r.unchecked.length - 4) + " more" : "";
+    html += "<p class='section-note'>" + r.unchecked.length + " same-named " +
+      qty(r.unchecked.length, "column") + " in tables outside this module were not checked: " +
+      names + more + ". These are usually a coincidence, since every synced table has its " +
+      "own Created Time and Owner. <button class='link' data-elsewhere='" + esc(f.api_name) +
+      "'>Check them anyway</button></p>";
+  }
   html += "</div>";
   if (r.sql.length) {
     html += groupHeading("Query table SQL matches", r.sql.length, "", "section-sql");
@@ -364,6 +383,16 @@ $("detail-body").addEventListener("click", function (e) {
   if (jump) {
     var section = document.getElementById(jump.getAttribute("data-jump"));
     if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  var elsewhere = e.target.closest("[data-elsewhere]");
+  if (elsewhere) {
+    var apiName = elsewhere.getAttribute("data-elsewhere");
+    var field = S.fields.filter(function (x) { return x.api_name === apiName; })[0];
+    if (!field) return;
+    elsewhere.textContent = "Checking…";
+    elsewhere.disabled = true;
+    checkElsewhere(field).then(function () { renderFieldList(); renderDetail(field); });
     return;
   }
   var recheck = e.target.closest("[data-recheck]");
