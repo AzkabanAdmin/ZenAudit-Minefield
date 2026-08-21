@@ -569,7 +569,23 @@ body.zen .ws-pill.on { background: #E3ECE0; }
 body.zen #loader { background: rgba(251, 247, 236, .93); }
 body.zen #loader .pill { background: #F0E1CC; border-color: #E6DEC9; color: #A24E2E; box-shadow: 0 2px 10px rgba(197, 140, 109, .18); }
 body.zen .loader-shadow { background: radial-gradient(ellipse at center, rgba(75, 122, 72, .32), rgba(75, 122, 72, 0) 70%); }
-body.zen .loader-caption { color: #A24E2E; }
+body.zen /* the otter only gets a coffee once a run is known to be a long one */
+.otter-coffee { opacity: 0; transition: opacity .8s ease; }
+#loader.long-run .otter-coffee { opacity: 1; }
+.steam { transform-origin: center bottom; }
+#loader.long-run .steam { animation: steam-rise 3s ease-in-out infinite; }
+#loader.long-run .steam2 { animation-delay: 1s; }
+#loader.long-run .steam3 { animation-delay: 2s; }
+@keyframes steam-rise {
+  0% { opacity: 0; transform: translateY(4px) scale(.85); }
+  35% { opacity: .8; }
+  100% { opacity: 0; transform: translateY(-12px) scale(1.15); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #loader.long-run .steam { animation: none; }
+}
+
+.loader-caption { color: #A24E2E; }
 body.zen #loader-fill, body.zen #mini-fill { background: #4B7A48; }
 body.zen #mini-status { background: rgba(246, 240, 224, .92); color: #A24E2E; }
 body.zen .theme-menu { background: #FFFEFA; border-color: #E6DEC9; box-shadow: 0 10px 30px rgba(75, 122, 72, .18); }

@@ -104,13 +104,75 @@ function invokeConn(connName, url, headers) {
     return body;
   });
 }
+/* **********************************************************************
+ *   Rate_Limits
+ *
+ *   Zoho meters both services, and Analytics metadata is the tight one at
+ *   60 calls a minute, rejecting the rest with error 6045. Reading
+ *   structure costs one call per table, which is hundreds in a real org.
+ *
+ *   Every call is spaced to stay under the cap rather than discovering it
+ *   the hard way. Before this, a large org silently lost most of its
+ *   tables: the first minute of calls landed and every later one was
+ *   refused, so a "safe to delete" verdict rested on a fraction of the
+ *   data with nothing on screen to say so.
+ *
+ *   LIMITS holds the floor between calls per service. Analytics sits just
+ *   over a second to keep clear of 60 a minute. CRM's floor is well below
+ *   its own ceiling and below normal round-trip time, so it costs nothing
+ *   and guards against a faster connection outrunning the limit.
+ ********************************************************************** */
+
+var LIMITS = {
+  analytics: { minIntervalMs: 1100, nextAt: 0, retryWaitMs: 45000, hits: 0 },
+  crm: { minIntervalMs: 120, nextAt: 0, retryWaitMs: 20000, hits: 0 }
+};
+
+function wait(ms) {
+  return new Promise(function (resolve) { setTimeout(resolve, ms); });
+}
+
+//==========// reserve this call's slot up front, so queued callers keep their order
+function reserveSlot(limit) {
+  var now = Date.now();
+  var delay = Math.max(0, limit.nextAt - now);
+  limit.nextAt = Math.max(now, limit.nextAt) + limit.minIntervalMs;
+  return delay ? wait(delay) : Promise.resolve();
+}
+
+function isRateLimited(err) {
+  var s = String((err && err.message) || err);
+  return s.indexOf("6045") >= 0 || /rate limit|too many request/i.test(s);
+}
+
+//==========// spacing should prevent a rejection, so one retry is enough; if it
+//==========// still fails the caller hears about it rather than losing the row
+function limitedGet(limit, connName, url, headers) {
+  return reserveSlot(limit)
+    .then(function () { return invokeConn(connName, url, headers); })
+    .catch(function (err) {
+      if (!isRateLimited(err)) throw err;
+      limit.hits++;
+      return wait(limit.retryWaitMs)
+        .then(function () { return reserveSlot(limit); })
+        .then(function () { return invokeConn(connName, url, headers); });
+    });
+}
+
+//==========// how long a run of metered calls will take, in whole minutes
+function estimateMinutes(callCount, limit) {
+  return Math.ceil((callCount * limit.minIntervalMs) / 60000);
+}
+
 function analyticsGet(path, config) {
   var url = apiBase() + "/restapi/v2" + path;
   if (config) url += (path.indexOf("?") < 0 ? "?" : "&") + "CONFIG=" + encodeURIComponent(JSON.stringify(config));
-  return invokeConn($("conn-analytics").value.trim(), url, S.orgId ? { "ZANALYTICS-ORGID": S.orgId } : {});
+  return limitedGet(LIMITS.analytics, $("conn-analytics").value.trim(), url,
+    S.orgId ? { "ZANALYTICS-ORGID": S.orgId } : {});
 }
+
 function crmGet(path) {
-  return invokeConn($("conn-crm").value.trim(), crmApiBase() + "/crm/v8" + path);
+  return limitedGet(LIMITS.crm, $("conn-crm").value.trim(), crmApiBase() + "/crm/v8" + path, {});
 }
 //==========// run fn over items one at a time, to stay inside API rate limits
 function runQueue(items, fn, onStep) {

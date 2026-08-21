@@ -255,6 +255,7 @@ function beginScan() {
 function failScan(err) {
   S.scanning = false;
   hideLoader();
+  resetLoaderCaption();
   updateScanButton();
   showError(String(err && err.message || err));
 }
@@ -624,8 +625,41 @@ function scanConnectedWorkflows() {
 //==========// filterByFolder is only true for the reverse audit, whose blind
 //==========// every-column sweep is the one thing folder noise can drown. Field-name
 //==========// matching does not care what folder a table lives in.
+//==========// Warns before a long run, since Analytics metering makes a big org
+//==========// take minutes and a silent progress bar looks like a hang.
+//==========// The view listing tells us how many tables there are before any of
+//==========// the metered detail reads begin, so the estimate can be given up front
+//==========// rather than leaving someone watching a bar creep for five minutes.
+var LONG_SCAN_MINUTES = 2;
+
+function noteLongScan(tableCount) {
+  var mins = estimateMinutes(tableCount, LIMITS.analytics);
+  if (mins < LONG_SCAN_MINUTES) return;
+  var p = $("scan-progress");
+  p.classList.remove("done");
+  p.innerHTML = "<b>Large environment</b><span class='scan-stats'>" + tableCount +
+    " tables to read. Zoho Analytics allows 60 of these a minute, so this takes about " +
+    mins + " minutes.</span>";
+  //==========// the loader covers the card, so say it where they are looking, and
+  //==========// hand the otter a coffee while they wait
+  var caption = document.querySelector(".loader-caption");
+  if (caption) caption.textContent = "large environment · about " + mins + " minutes · grab a coffee";
+  $("loader").classList.add("long-run");
+}
+
+//==========// remaining time for a metered run, phrased loosely because it is an
+//==========// estimate: "about 4 minutes left"
+function remainingLabel(done, total, limit) {
+  var left = Math.max(0, total - done);
+  var secs = Math.round((left * limit.minIntervalMs) / 1000);
+  if (secs < 45) return "almost done";
+  if (secs < 90) return "about a minute left";
+  return "about " + Math.round(secs / 60) + " minutes left";
+}
+
 function scanAnalytics(targets, filterByFolder) {
   showLoader("Listing Analytics views…");
+  S.viewsUnreadable = 0;
   var detailTargets = [];
   return runQueue(targets, function (w) {
     $("scan-progress").innerHTML = "Listing views in <b>" + esc(w.workspaceName) + "</b>&hellip;";
@@ -642,6 +676,7 @@ function scanAnalytics(targets, filterByFolder) {
         });
       });
   }).then(function () {
+    noteLongScan(detailTargets.length);
     return runQueue(detailTargets, function (t) {
       return analyticsGet("/views/" + t.view.viewId, { withInvolvedMetaInfo: true })
         .then(function (body) {
@@ -675,10 +710,11 @@ function scanAnalytics(targets, filterByFolder) {
             });
           }
         })
-        .catch(function () { /* skip unreadable views; surfaced in totals */ });
+        .catch(function () { S.viewsUnreadable++; });
     }, function (i, n, t) {
       $("scan-progress").innerHTML = "Reading structure <b>" + i + " / " + n + "</b> &middot; " + esc(t.view.viewName);
-      showLoader("Reading structure " + i + " / " + n, n ? i / n : null);
+      var suffix = n >= 60 ? " · " + remainingLabel(i, n, LIMITS.analytics) : "";
+      showLoader("Reading structure " + i + " / " + n + suffix, n ? i / n : null);
     });
   });
 }
@@ -837,6 +873,11 @@ function scanStats() {
     "<b>" + S.tables.length + "</b> " + qty(S.tables.length, "table") + " (" + colCount + " columns)",
     "<b>" + S.queryTables.length + "</b> query " + qty(S.queryTables.length, "table")
   ];
+  //==========// an unread table is a hole in every verdict, so it leads the stats
+  if (S.viewsUnreadable) {
+    stats.splice(1, 0, "<b>" + S.viewsUnreadable + "</b> " +
+      qty(S.viewsUnreadable, "table") + " could not be read");
+  }
   ranScans().forEach(function (sc) {
     var n = S[sc.store].length;
     stats.push("<b>" + n + "</b> " + qty(n, sc.unit) +
@@ -846,14 +887,28 @@ function scanStats() {
   return stats;
 }
 
+var LOADER_CAPTION = "making field cleanup safer";
+
+function resetLoaderCaption() {
+  var caption = document.querySelector(".loader-caption");
+  if (caption) caption.textContent = LOADER_CAPTION;
+  $("loader").classList.remove("long-run");
+}
+
 function finishScan() {
   S.scanning = false;
   hideLoader();
+  resetLoaderCaption();
   var stats = scanStats();
   var p = $("scan-progress");
   p.classList.add("done");
   p.innerHTML = "<b>Last scan · " + esc(S.scannedAt) + "</b>" +
     "<span class='scan-stats'>" + stats.join(" · ") + "</span>";
+  if (S.viewsUnreadable) {
+    showError(S.viewsUnreadable + " of " + (S.viewsUnreadable + S.tables.length + S.queryTables.length) +
+      " Analytics tables could not be read, so verdicts below only cover the rest. " +
+      "This is usually Zoho's 60-per-minute metadata limit under load. Re-run the scan to pick up the remainder.");
+  }
   updateScanButton();
   $("results").classList.remove("hidden");
   $("reverse-audit-card").classList.add("hidden");

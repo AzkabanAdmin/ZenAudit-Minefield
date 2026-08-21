@@ -43,6 +43,9 @@ var S = {
   connectedWorkflowRules: [], // {id, name, moduleApiName, moduleId, triggerFields:[apiName], criteriaFields:[apiName]}
   connectedWorkflowRulesScanned: false,
   viewCount: 0,
+  //==========// a scan that could not read every table has to say so, rather than
+  //==========// letting a verdict imply coverage it does not have
+  viewsUnreadable: 0,
   modules: [],
   fields: [],
   results: {},        // field api_name -> usage result (see checkField)
