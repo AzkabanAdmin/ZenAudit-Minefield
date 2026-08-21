@@ -11,6 +11,10 @@ const vm = require("vm");
 
 const APP = path.join(__dirname, "..", "app", "js");
 
+//==========// a real standalone function from the live org, kept verbatim
+const ACCOUNT_FOLDER_FN = fs.readFileSync(
+  path.join(__dirname, "fixtures", "create_or_search_account_google_folder.dg"), "utf8");
+
 const els = { "module-pick": { value: "Invoices", selectedOptions: [{ textContent: "Invoices" }] } };
 const sandbox = {
   console, Promise, JSON, String, Math, RegExp, Array, Object, Number, Boolean, isNaN,
@@ -34,9 +38,16 @@ function check(name, actual, expected) {
     (ok ? "" : "\n   got:      " + JSON.stringify(actual) + "\n   expected: " + JSON.stringify(expected)));
 }
 
+//==========// standard field: generic name, so the module must be anchored
 function hitsFor(apiName, code) {
   S.functions = [{ id: "1", name: "fn", code: code }];
-  return sandbox.functionHits({ api_name: apiName, label: apiName });
+  return sandbox.functionHits({ api_name: apiName, label: apiName, custom: false });
+}
+
+//==========// custom field: distinctive name, so matching is loose
+function customHitsFor(apiName, code) {
+  S.functions = [{ id: "1", name: "fn", code: code }];
+  return sandbox.functionHits({ api_name: apiName, label: apiName, custom: true });
 }
 
 /* **********************************************************************
@@ -101,6 +112,74 @@ check("the snippet shows an attributed ref",
 //==========// api names under three characters are skipped as hopeless
 check("very short api names are skipped",
   hitsFor("ID", 'inv = zoho.crm.getRecordById("Invoices", x); v = inv.get("ID");').length, 0);
+
+/* **********************************************************************
+ *   A_Real_Function_From_The_Org
+ *
+ *   Create_Or_Search_Account_Google_Folder names its module only through
+ *   an invokeurl REST path, and holds the field name in a config variable
+ *   before using it. Both are why it was being missed.
+ ********************************************************************** */
+
+els["module-pick"] = { value: "Accounts", selectedOptions: [{ textContent: "Accounts" }] };
+
+const accountHits = customHitsFor("GDrive_ID", ACCOUNT_FOLDER_FN);
+check("a field name held in a config variable is found", accountHits.length, 1);
+check("the snippet shows the assignment that names it",
+  /CRM_GDrive_ID = "GDrive_ID"/.test(accountHits[0].snippet), true);
+check("the second config field is found too",
+  customHitsFor("Shared_Google_Folder", ACCOUNT_FOLDER_FN).length, 1);
+
+//==========// the module is named only in the REST path, never via zoho.crm.*
+check("an invokeurl REST path anchors the module",
+  sandbox.functionTouchesModule(ACCOUNT_FOLDER_FN, "Accounts", {}), true);
+check("a module the function never touches does not anchor",
+  sandbox.functionTouchesModule(ACCOUNT_FOLDER_FN, "Invoices", {}), false);
+
+//==========// "Folder Name: " is prose, but Subfolder.get("Name") is a real name
+check("prose with a trailing colon and space is not a criteria clause",
+  hitsFor("Name", ACCOUNT_FOLDER_FN).length, 1);
+
+//==========// auditing a module this function never touches must yield nothing
+els["module-pick"] = { value: "Invoices", selectedOptions: [{ textContent: "Invoices" }] };
+//==========// a custom name is distinctive, so it is reported wherever it appears
+check("a custom field is found whichever module is selected",
+  customHitsFor("GDrive_ID", ACCOUNT_FOLDER_FN).length, 1);
+check("Name on Invoices stays clean against this function",
+  hitsFor("Name", ACCOUNT_FOLDER_FN).length, 0);
+
+/* **********************************************************************
+ *   Custom_Fields_Are_Searched_Loosely
+ *
+ *   A custom API name is org-specific, so it does not need the module
+ *   anchored. A standard name like Name does, because it collides with
+ *   prose and local variables everywhere.
+ ********************************************************************** */
+
+els["module-pick"] = { value: "Accounts", selectedOptions: [{ textContent: "Accounts" }] };
+
+const noAnchor = 'x = Map(); x.put("Custom_Ref_ID", 1);';
+check("a custom field needs no module anchor",
+  customHitsFor("Custom_Ref_ID", noAnchor).length, 1);
+check("a standard field still does",
+  hitsFor("Custom_Ref_ID", noAnchor).length, 0);
+
+//==========// a distinctive custom name is worth finding as a bare identifier
+check("a custom field is found as a bare identifier",
+  customHitsFor("Custom_Ref_ID", "Custom_Ref_ID = 5;").length, 1);
+check("a standard field is not matched as a bare identifier",
+  hitsFor("Stage", 'i = zoho.crm.getRecordById("Accounts", x); Stage = 5;').length, 0);
+
+//==========// a longer identifier or string containing the name is still not a match
+check("a custom name inside a longer identifier is not a match",
+  customHitsFor("GDrive_ID", "Account_GDrive_ID = 5;").length, 0);
+check("a custom name inside a longer string is not a match",
+  customHitsFor("GDrive_ID", 'x = "Account_GDrive_ID";').length, 0);
+
+//==========// looseness never overrides positive disproof
+check("a custom field proven to belong to another module is dropped",
+  customHitsFor("Custom_Ref_ID",
+    'd = zoho.crm.getRecordById("Deals", id); v = d.get("Custom_Ref_ID");').length, 0);
 
 console.log(failures ? "\n" + failures + " FAILURE(S)" : "\nALL DELUGE CHECKS PASSED");
 process.exit(failures ? 1 : 0);

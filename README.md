@@ -36,39 +36,54 @@ Not every source can be equally certain, so the app never pretends otherwise. Th
 |---|---|---|
 | **Exact** | Analytics, workflow field updates, workflow rules, scoring rules, blueprints, connected workflows | Zoho's own dependency engine by `columnId`, or module **id** + field API name straight from the API |
 | **High** | CRM reports, webhooks | Report refs resolved through the report's own joins; webhook `${!Module.Field}` merge tags. Report references more than one join hop deep are labeled **unverified** rather than treated as certain |
-| **Heuristic** | CRM Deluge functions | Deluge has no dependency API, so this is a text search, but a match only counts when the module is part of the reference (below) |
+| **Heuristic** | CRM Deluge functions | Deluge has no dependency API, so this is a text search over comment-stripped source. Custom names are searched loosely; standard names additionally need the module anchored in the function (below) |
 
-### Why Deluge matching requires the module
+### How strict Deluge matching is, and why
 
-Analytics gets module scoping for free: it finds the module's synced table
-first, then looks for the column inside it, so the module is structurally
-part of the match. A text search over Deluge has no such anchor, and a
-field with a generic API name is where that bites. The Invoices module's
-"Invoice Number" field has the API name `Name`, and a bare search for it
-matches every `// Name (required)` comment, every `"Name: "` log string,
-and every local variable called `Name` in the org.
+The goal is to find every occurrence of a field, so the default is to
+search loosely. The one thing that makes that unsafe is a generic API
+name, and generic names are almost entirely a standard-field problem:
+`Name`, `Owner`, `Email`, `Phone`. A custom field's API name is
+org-specific, so `GDrive_ID` can be searched for anywhere without dragging
+in prose.
 
-So attribution is required rather than merely preferred. An API call is
-where a module almost always has to be named, which makes it the anchor.
-Two forms carry the module:
+So the two are treated differently:
 
-- a variable Deluge itself ties to the module, as in
-  `inv = zoho.crm.getRecordById("Invoices", id)` followed by
-  `inv.get("Name")`, including a map later passed to `createRecord` or
-  `updateRecord` for that module
-- a single call naming both module and field, as in
-  `searchRecords("Invoices", "(Name:equals:INV-1)")`
+- **Custom fields** are searched loosely, anywhere in any function.
+- **Standard fields** additionally require the module to be anchored in
+  the function. A CRM API call is where a module has to be named, so that
+  is the anchor: a `zoho.crm.*` call or an `invokeurl` REST path like
+  `/crm/v8/Accounts`.
+
+Either way an occurrence has to look like a name rather than prose. Deluge
+names a field with a complete quoted string, and that string is routinely
+held in a config variable before use:
+
+```
+CRM_GDrive_ID = "GDrive_ID";
+Update_Map.put(CRM_GDrive_ID, Folder_ID);
+```
+
+so the whole literal has to equal the API name. `"Name: "` and
+`"Folder Name"` are prose. Criteria clauses like `(Stage:equals:Closed Won)`
+and the `input.Stage` form count as names too, and a distinctive custom
+name counts as a bare identifier as well.
 
 Comments are stripped before matching, and matching is case-sensitive
 because Deluge field access is: a lowercase `get("name")` provably is not
 a reference to a field named `Name`.
 
-The cost is recall. A bare `input.Name`, whose module is only implied by
-how the function is wired to a workflow, is not attributable and will be
-missed. That trade is deliberate: a verdict listing eleven functions that
-have nothing to do with the field is worse than useless, because it
-teaches you to ignore the verdict. Analytics and the automation sources
-are unaffected, since they all match on module id or table.
+Why it matters: on a live org, the Invoices module's "Invoice Number"
+field has the API name `Name`. A bare text search reported 22 function
+hits, every one of them a comment, a log string, or a local variable, and
+marked 10 of the module's 29 fields "in use". The real answer was zero. A
+verdict full of irrelevant hits teaches you to ignore the verdict, which
+defeats the tool.
+
+The remaining gap is a standard field passed into a function as an
+argument, where the mapping lives in CRM's function configuration rather
+than in the code. `test/real-data.test.js` pins current behavior against a
+real 45-function org.
 
 Every source counts toward the verdict. There is deliberately no "informational" tier: a result you can't act on is noise, so sources that could only ever report a name coincidence were removed rather than shipped with a disclaimer.
 

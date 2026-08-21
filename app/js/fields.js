@@ -200,53 +200,92 @@ function fieldRefRegex(apiName, flags) {
 }
 
 /*
- *   A match counts only when the module is part of the reference.
+ *   How strict to be depends on the field.
  *
- *   Analytics gets that guarantee for free: it finds the module's synced
- *   table first, then looks for the column inside it, so the module is
- *   structurally part of the match. A text search over Deluge has no such
- *   anchor, and a field with a generic API name like Name otherwise
- *   matches every prose string and local variable in the org.
+ *   The goal is to find every occurrence of a field, so the default is to
+ *   search loosely. The one thing that makes that unsafe is a generic API
+ *   name, and generic names are almost entirely a standard-field problem:
+ *   Name, Owner, Email, Phone. A custom field's API name is org-specific
+ *   and distinctive, so GDrive_ID or Shared_Google_Folder can be searched
+ *   for anywhere without dragging in prose.
  *
- *   So attribution is required rather than merely preferred. Two forms
- *   carry the module:
+ *   So custom fields are searched loosely, and standard fields carry one
+ *   extra requirement: the module has to be anchored somewhere in the
+ *   function. A CRM API call is where a module has to be named, so that is
+ *   the anchor, whether it is a zoho.crm.* call or an invokeurl REST path.
  *
- *     A. an access through a variable Deluge itself ties to this module,
- *        such as inv = zoho.crm.getRecordById("Invoices", id) followed by
- *        inv.get("Name"), including a map later passed to createRecord or
- *        updateRecord for this module
- *     B. a single zoho.crm call naming both the module and the field, such
- *        as searchRecords("Invoices", "(Name:equals:INV-1)")
+ *   Either way an occurrence has to look like a name rather than prose.
+ *   Deluge names a field with a complete quoted string, and that string is
+ *   routinely held in a config variable before use:
  *
- *   Anything else is dropped. That trades some recall for a verdict you
- *   can act on: a bare input.Name, whose module is only implied by how the
- *   function is wired to a workflow, is not attributable and will be
- *   missed. Analytics and the automation sources are unaffected.
+ *       CRM_GDrive_ID = "GDrive_ID";
+ *       Update_Map.put(CRM_GDrive_ID, Folder_ID);
+ *
+ *   so the whole literal has to equal the API name. "Name: " and
+ *   "Folder Name" are prose. Criteria clauses and the input.Stage form
+ *   count as names too.
+ *
+ *   An occurrence is still dropped when it provably belongs to another
+ *   module, such as a get through a variable tied to a different one.
  */
-function attributedRefs(code, apiName, currentModule, moduleVars) {
-  var refs = [];
-  var seen = {};
 
-  //==========// Form A: <var>.get("Name"), <var>.put("Name", <var>.Name
-  var accessRe = new RegExp("([A-Za-z_]\\w*)\\s*\\.\\s*(?:get\\(\\s*[\"']" + escRe(apiName) +
-    "[\"']\\s*\\)|put\\(\\s*[\"']" + escRe(apiName) + "[\"']|" + escRe(apiName) + "\\b)", "g");
-  var m;
-  while ((m = accessRe.exec(code))) {
-    if (moduleVars[m[1]] === currentModule && !seen[m.index]) {
-      seen[m.index] = 1;
-      refs.push(m.index);
+//==========// is the module named anywhere in a CRM API context?
+function functionTouchesModule(code, currentModule, moduleVars) {
+  for (var v in moduleVars) {
+    if (moduleVars[v] === currentModule) return true;
+  }
+  if (new RegExp("zoho\\.crm\\.\\w+\\s*\\(\\s*[\"']" + escRe(currentModule) + "[\"']").test(code)) return true;
+  //==========// raw REST calls carry the module in the URL path
+  if (new RegExp("/crm/v\\d+/" + escRe(currentModule) + "(?![A-Za-z0-9_])").test(code)) return true;
+  return false;
+}
+
+//==========// occurrences reached through a variable tied to a different module
+function disprovenRefs(code, apiName, currentModule, moduleVars) {
+  var out = {};
+  function scan(re) {
+    var m;
+    while ((m = re.exec(code))) {
+      var mod = moduleVars[m[1]];
+      if (mod && mod !== currentModule) out[m.index + m[0].lastIndexOf(apiName)] = 1;
     }
   }
+  scan(new RegExp("([A-Za-z_]\\w*)\\s*\\.\\s*(?:get|put)\\s*\\(\\s*[\"']" + escRe(apiName) + "[\"']", "g"));
+  scan(new RegExp("([A-Za-z_]\\w*)\\s*\\.\\s*" + escRe(apiName) + "(?![A-Za-z0-9_])", "g"));
+  return out;
+}
 
-  //==========// Form B: one call naming the module, with the field inside its args
-  var callRe = new RegExp("zoho\\.crm\\.\\w+\\s*\\(\\s*[\"']" + escRe(currentModule) +
-    "[\"'][^;]{0,400}", "g");
-  while ((m = callRe.exec(code))) {
-    var inner = m[0].search(fieldRefRegex(apiName, ""));
-    if (inner >= 0 && !seen[m.index + inner]) {
-      seen[m.index + inner] = 1;
-      refs.push(m.index + inner);
-    }
+function attributedRefs(code, field, currentModule, moduleVars) {
+  var apiName = field.api_name;
+  //==========// a standard field's generic name needs the module anchored first
+  if (!field.custom && !functionTouchesModule(code, currentModule, moduleVars)) return [];
+
+  var disproven = disprovenRefs(code, apiName, currentModule, moduleVars);
+  var refs = [], seen = {}, m;
+  function add(at) {
+    if (!disproven[at] && !seen[at]) { seen[at] = 1; refs.push(at); }
+  }
+
+  //==========// a complete quoted literal equal to the API name
+  var litRe = new RegExp("[\"']" + escRe(apiName) + "[\"']", "g");
+  while ((m = litRe.exec(code))) add(m.index + 1);
+
+  //==========// the unquoted dot form, input.Stage
+  var dotRe = new RegExp("([A-Za-z_]\\w*)\\s*\\.\\s*" + escRe(apiName) + "(?![A-Za-z0-9_])", "g");
+  while ((m = dotRe.exec(code))) add(m.index + m[0].lastIndexOf(apiName));
+
+  //==========// a criteria clause, "(Stage:equals:Closed Won)". The colon has to be
+  //==========// followed straight away by a value, which is what separates a
+  //==========// criteria clause from prose like "Name: ".
+  var critRe = new RegExp("[\"'(,]" + escRe(apiName) + ":(?=[^\\s:])", "g");
+  while ((m = critRe.exec(code))) add(m.index + 1);
+
+  //==========// A distinctive custom name is worth finding as a bare identifier too,
+  //==========// which catches it being passed around as a variable. Standard names
+  //==========// are far too common for this to be safe.
+  if (field.custom) {
+    var bareRe = new RegExp("(^|[^A-Za-z0-9_\.\"'])" + escRe(apiName) + "(?![A-Za-z0-9_])", "g");
+    while ((m = bareRe.exec(code))) add(m.index + m[0].lastIndexOf(apiName));
   }
 
   refs.sort(function (a, b) { return a - b; });
@@ -261,7 +300,7 @@ function functionHits(field) {
     var code = searchableCode(fn);
     //==========// a cheap reject before the attribution work
     if (!fieldRefRegex(field.api_name, "").test(code)) return;
-    var refs = attributedRefs(code, field.api_name, currentModule, delugeModuleVarsFor(fn));
+    var refs = attributedRefs(code, field, currentModule, delugeModuleVarsFor(fn));
     if (!refs.length) return;
     //==========// the count and snippet describe the attributed refs, nothing else
     var at = refs[0];

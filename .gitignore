@@ -5,3 +5,6 @@ cert.pem
 *.log
 .DS_Store
 Thumbs.db
+
+# real-org scan cache used for local matching tests, not for sharing
+test/fixtures/scan-cache.json

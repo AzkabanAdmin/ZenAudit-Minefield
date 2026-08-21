@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "start": "node server/index.js",
-    "test": "node test/boot.test.js && node test/transport.test.js && node test/paging.test.js && node test/deluge.test.js && node test/verdicts.test.js"
+    "test": "node test/boot.test.js && node test/transport.test.js && node test/paging.test.js && node test/deluge.test.js && node test/real-data.test.js && node test/verdicts.test.js"
   },
   "dependencies": {
     "body-parser": "^1.14.2",
