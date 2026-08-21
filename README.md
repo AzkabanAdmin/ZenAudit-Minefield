@@ -198,7 +198,9 @@ Three themes (dark by default, light, and zen) via the header dropdown, persiste
 
 Two connections, that's the whole setup. `ZohoCRM.settings.ALL` is known working. If your scope picker offers them separately, the minimal set is `settings.functions.READ`, `settings.reports.READ`, `settings.automation_actions.READ`, `settings.workflow_rules.READ`, `settings.scoring_rules.READ`, `settings.blueprint.READ`, and `settings.connected_workflows.READ`. The broader `ZohoAnalytics.fullaccess.all` also works.
 
-Click any scope chip in the widget to copy it.
+Click any scope chip in the widget to copy it. The widget runs in a
+cross-origin iframe, where the Clipboard API is not permitted, so it falls
+back to an older copy path and, failing that, selects the text for you.
 
 **2. Widget**. Setup > Developer Space > Widgets > Create. Type **Web Tab**, hosting **External** pointing at `https://127.0.0.1:5000/app/widget.html` for development, or **Zoho** once packaged.
 

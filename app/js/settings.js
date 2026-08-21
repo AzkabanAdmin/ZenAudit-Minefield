@@ -123,16 +123,75 @@ $("btn-back-to-menu").onclick = function () {
   $("btn-toggle-setup").textContent = "Hide settings";
 };
 $("btn-guide").onclick = function () { $("guide").classList.toggle("hidden"); };
-//==========// click any scope chip to copy it into the connection form
+/* **********************************************************************
+ *   Copying_A_Scope
+ *
+ *   The widget runs in a cross-origin iframe, and the Clipboard API needs
+ *   a clipboard-write permission the host frame does not grant, so
+ *   writeText rejects. The old handler only acted on success, which meant
+ *   clicking a scope silently did nothing.
+ *
+ *   So there are three attempts, and the last one always works: the modern
+ *   API, then the old execCommand which iframes still allow, then simply
+ *   selecting the text so it can be copied by hand. Feedback is shown
+ *   either way rather than only when the first attempt succeeds.
+ ********************************************************************** */
+
+//==========// the deprecated route, which is the one that works inside an iframe
+function copyViaTextarea(text) {
+  var ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "readonly");
+  ta.style.position = "fixed";
+  ta.style.top = "-1000px";
+  document.body.appendChild(ta);
+  ta.select();
+  var ok = false;
+  try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+  ta.remove();
+  return ok;
+}
+
+//==========// last resort: leave it selected so Ctrl+C finishes the job
+function selectElementText(el) {
+  try {
+    var range = document.createRange();
+    range.selectNodeContents(el);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return true;
+  } catch (e) { return false; }
+}
+
+function flashChip(el, message) {
+  var original = el.getAttribute("data-scope") || el.textContent;
+  el.setAttribute("data-scope", original);
+  el.textContent = message;
+  setTimeout(function () {
+    el.textContent = el.getAttribute("data-scope") || original;
+    el.removeAttribute("data-scope");
+  }, 1100);
+}
+
 document.addEventListener("click", function (e) {
   var el = e.target;
   if (el.tagName !== "CODE" || !(el.closest(".scopes") || el.closest(".guide"))) return;
+  //==========// mid-flash, so the label is not the scope right now
+  if (el.hasAttribute("data-scope")) return;
   var text = el.textContent;
-  if (text === "copied!") return;
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(text).then(function () {
-      el.textContent = "copied!";
-      setTimeout(function () { el.textContent = text; }, 900);
-    });
+
+  function fallback() {
+    if (copyViaTextarea(text)) { flashChip(el, "copied"); return; }
+    if (selectElementText(el)) { flashChip(el, "press Ctrl+C"); return; }
+    flashChip(el, "copy by hand");
   }
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function () {
+      flashChip(el, "copied");
+    }, fallback);
+    return;
+  }
+  fallback();
 });
