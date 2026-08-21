@@ -446,6 +446,10 @@ var CRM_SCANS = [
 
 function beginScan() {
   resetLoaderCaption();
+  hideSaveNudge();
+  S.importedFrom = null;
+  S.scanStartedAt = Date.now();
+  S.lastScanSeconds = null;
   S.scanning = true;
   $("btn-scan").disabled = true;
   $("scan-progress").classList.remove("done");
@@ -1034,25 +1038,165 @@ function scanWorkflowFieldUpdates() {
  *   cached and restored without touching this section.
  ********************************************************************** */
 
-function cacheScan() {
+//==========// One shape serves both the cache and the exported file, so a saved
+//==========// scan and a cached scan restore through exactly the same path.
+var SCAN_FORMAT = "zenaudit-scan-1";
+
+function scanPayload() {
   var payload = {
-    //==========// crmZgid is what keys the cache to an org. localStorage is shared
-    //==========// across every org on crm.zoho.com, so without it switching orgs
-    //==========// offers you the previous client's scan.
+    format: SCAN_FORMAT,
+    //==========// crmZgid keys a scan to its org. localStorage is shared across
+    //==========// every org on crm.zoho.com, and a saved file can travel anywhere,
+    //==========// so both need to say which org they describe.
     crmZgid: S.crmZgid,
     at: S.scannedAt, orgId: S.orgId, dc: $("dc").value,
     tables: S.tables, queryTables: S.queryTables, viewCount: S.viewCount,
+    viewsUnreadable: S.viewsUnreadable,
     analyticsScanned: S.analyticsScanned, reportsSkippedStale: S.reportsSkippedStale
   };
   SCANS.forEach(function (sc) {
     payload[sc.store] = S[sc.store];
     payload[sc.flag] = S[sc.flag];
   });
-  try {
-    localStorage.setItem(SCAN_KEY, JSON.stringify(payload));
-    offerCachedScan();
-  } catch (e) { /* best-effort */ }
+  return payload;
 }
+
+function cacheScan() {
+  try {
+    localStorage.setItem(SCAN_KEY, JSON.stringify(scanPayload()));
+    offerCachedScan();
+  } catch (e) { /* best-effort; the file export is the durable route */ }
+}
+
+/* **********************************************************************
+ *   Save_And_Load_A_Scan
+ *
+ *   A full scan of a large org takes minutes and thousands of metered API
+ *   calls, so it should be a file rather than something you re-run. The
+ *   browser cache is convenient but fragile: it is cleared, it is per
+ *   browser, and it has a size limit a big org can exceed. A saved file
+ *   survives all of that, moves between machines, and can be handed to a
+ *   colleague to look at the same data.
+ *
+ *   A loaded file is data, never code: it is parsed as JSON and checked
+ *   for shape before anything reads it. It is also checked against the org
+ *   on screen, because a scan describing a different org would produce
+ *   verdicts that look right and are about someone else's CRM.
+ ********************************************************************** */
+
+//==========// what a scan file has to contain to be worth restoring
+function validateScanFile(obj) {
+  if (!obj || typeof obj !== "object") return "That file does not contain a scan.";
+  if (obj.format && obj.format !== SCAN_FORMAT) {
+    return "That scan was saved by a different version of this widget (" + esc(String(obj.format)) + ").";
+  }
+  if (!Array.isArray(obj.tables) || !Array.isArray(obj.queryTables)) {
+    return "That scan file is missing its Analytics tables.";
+  }
+  //==========// every source has to be an array if it is present at all
+  for (var i = 0; i < SCANS.length; i++) {
+    var store = SCANS[i].store;
+    if (obj[store] != null && !Array.isArray(obj[store])) {
+      return "That scan file has a damaged " + SCANS[i].label + " list.";
+    }
+  }
+  if (!obj.at) return "That scan file has no scan date.";
+  return null;
+}
+
+//==========// a filename that says which org and when, so a folder of these is
+//==========// still readable in six months
+function scanFileName() {
+  var stamp = String(S.scannedAt || "").replace(/[^0-9A-Za-z]+/g, "-").replace(/^-+|-+$/g, "");
+  return "zenaudit-scan-" + (S.crmZgid || "org") + "-" + (stamp || "latest") + ".json";
+}
+
+function scanIsWorthSaving() {
+  return !!(S.scannedAt && (S.tables.length || ranScans().length));
+}
+
+function updateScanFileButtons() {
+  $("btn-export-scan").classList.toggle("hidden", !scanIsWorthSaving());
+}
+
+function exportScan() {
+  if (!scanIsWorthSaving()) return;
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(scanPayload())], { type: "application/json" }));
+  a.download = scanFileName();
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+$("btn-export-scan").onclick = exportScan;
+
+/* **********************************************************************
+ *   Offer_To_Save_After_A_Long_Scan
+ *
+ *   Someone who just waited several minutes should not have to know the
+ *   Save link exists, and should not lose that work to a cleared browser
+ *   cache. The offer is based on how long the scan actually took rather
+ *   than the estimate, so it only ever appears when the wait was real.
+ ********************************************************************** */
+
+var SUGGEST_SAVE_AFTER_SECONDS = 90;
+
+function hideSaveNudge() { $("save-nudge").classList.add("hidden"); }
+
+function maybeSuggestSave() {
+  //==========// nothing to offer for a restore: it is already a file or a cache
+  if (S.importedFrom || !S.lastScanSeconds || !scanIsWorthSaving()) { hideSaveNudge(); return; }
+  if (S.lastScanSeconds < SUGGEST_SAVE_AFTER_SECONDS) { hideSaveNudge(); return; }
+  $("save-nudge-text").innerHTML = "That scan took " + esc(describeDuration(S.lastScanSeconds)) +
+    ". Save it to a file and you can load it straight back later, on any machine, " +
+    "without spending those calls again.";
+  $("save-nudge").classList.remove("hidden");
+}
+
+$("btn-nudge-save").onclick = function () {
+  exportScan();
+  $("save-nudge-text").textContent = "Saved. Load it again any time with \u201cLoad scan from file\u201d.";
+  $("btn-nudge-save").classList.add("hidden");
+  $("btn-nudge-dismiss").textContent = "Close";
+};
+
+$("btn-nudge-dismiss").onclick = hideSaveNudge;
+
+$("btn-import-scan").onclick = function () { $("scan-file").click(); };
+
+$("scan-file").onchange = function () {
+  var file = this.files && this.files[0];
+  //==========// let the same file be picked again after a failed attempt
+  this.value = "";
+  if (!file) return;
+  clearError();
+  showLoader("Reading " + file.name + "…");
+  var reader = new FileReader();
+  reader.onerror = function () {
+    hideLoader();
+    showError("Could not read " + file.name + ".");
+  };
+  reader.onload = function () {
+    hideLoader();
+    var parsed;
+    try {
+      parsed = JSON.parse(reader.result);
+    } catch (e) {
+      showError(file.name + " is not valid JSON, so it is not a saved scan.");
+      return;
+    }
+    var problem = validateScanFile(parsed);
+    if (problem) { showError(problem); return; }
+    restoreScan(parsed);
+    S.importedFrom = file.name;
+    finishScan();
+    //==========// a scan from elsewhere has to say so, every time it is on screen
+    if (parsed.crmZgid && S.crmZgid && parsed.crmZgid !== S.crmZgid) {
+      showError("Loaded " + file.name + ", but it was scanned in a different org. " +
+        "Every verdict below describes that org, not this one.");
+    }
+  };
+  reader.readAsText(file);
+};
 
 function restoreScan(c) {
   S.tables = c.tables; S.queryTables = c.queryTables; S.viewCount = c.viewCount;
@@ -1130,10 +1274,17 @@ function finishScan() {
   S.scanning = false;
   hideLoader();
   resetLoaderCaption();
+  //==========// how long the run really took, which is what decides whether to
+  //==========// suggest saving it
+  if (S.scanStartedAt) {
+    S.lastScanSeconds = Math.round((Date.now() - S.scanStartedAt) / 1000);
+    S.scanStartedAt = null;
+  }
+  updateScanFileButtons();
   var stats = scanStats();
   var p = $("scan-progress");
   p.classList.add("done");
-  p.innerHTML = "<b>Last scan · " + esc(S.scannedAt) + "</b>" +
+  p.innerHTML = "<b>" + (S.importedFrom ? "Loaded scan · " : "Last scan · ") + esc(S.scannedAt) + "</b>" +
     "<span class='scan-stats'>" + stats.join(" · ") + "</span>";
   if (S.viewsUnreadable) {
     showError(S.viewsUnreadable + " of " + (S.viewsUnreadable + S.tables.length + S.queryTables.length) +
@@ -1141,6 +1292,7 @@ function finishScan() {
       "This is usually Zoho's 60-per-minute metadata limit under load. Re-run the scan to pick up the remainder.");
   }
   updateScanButton();
+  maybeSuggestSave();
   $("results").classList.remove("hidden");
   $("reverse-audit-card").classList.add("hidden");
   $("setup-card").classList.add("collapsed");

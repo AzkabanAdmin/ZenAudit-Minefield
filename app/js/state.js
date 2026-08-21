@@ -48,6 +48,12 @@ var S = {
   viewsUnreadable: 0,
   //==========// what a scan would cost, from the listing pass (see Scan_Plan)
   plan: null,
+  //==========// filename when the data on screen was loaded rather than scanned
+  importedFrom: null,
+  //==========// how long the last real scan took, which decides whether saving it
+  //==========// is worth suggesting
+  scanStartedAt: null,
+  lastScanSeconds: null,
   modules: [],
   fields: [],
   results: {},        // field api_name -> usage result (see checkField)

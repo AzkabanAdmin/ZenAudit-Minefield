@@ -118,6 +118,18 @@ genuinely slow. The widget says how long up front, shows the time
 remaining as it goes, and hands the otter a coffee for runs over three
 minutes. Analytics workspace and folder pickers appear only for the Reverse Analytics Audit, which is the one operation that needs the extra narrowing. Results cache in `localStorage`, so "Use cached scan" skips a re-scan next time.
 
+**Save the scan.** A big scan is minutes of metered calls, so it should not
+be something you repeat. **Save scan to file** writes the whole result as
+JSON, and **Load scan from file** reads it straight back, on any machine,
+without spending a single call. After a run that took more than about a
+minute and a half the widget offers to save it, since the browser cache is
+convenient but fragile: it gets cleared, it is per browser, and a large org
+can exceed its size limit.
+
+A loaded file is checked before anything reads it, and a scan taken in a
+different org loads with a standing warning that says so, because verdicts
+from the wrong org would look entirely plausible.
+
 **2. Fields.** Pick a module. Click any field to check it on demand, or **Check all fields** to badge the whole module at once. Filter chips (In use / Unused / Not in Analytics / Unchecked) carry live counts, and the search box filters by label or API name.
 
 **3. Usage.** The detail panel shows every place the field is used, grouped by source, with code and SQL snippets where relevant and deep links into CRM and Analytics. **Export CSV** turns the whole module into a client-ready audit artifact. **Recheck this field** re-runs a single field against fresh data.

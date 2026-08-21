@@ -249,6 +249,11 @@
           <button id="btn-scan" disabled>Scan</button>
           <button id="btn-plan" class="secondary">Check scan size</button>
           <button id="btn-cache" class="secondary hidden">Use cached scan</button>
+          <div class="file-row">
+            <button id="btn-export-scan" class="link hidden">Save scan to file</button>
+            <button id="btn-import-scan" class="link">Load scan from file</button>
+            <input type="file" id="scan-file" accept="application/json,.json" hidden>
+          </div>
           <div class="progress" id="scan-progress"></div>
         </div>
       </div>
@@ -285,6 +290,13 @@
         </ol>
       </div>
       <div class="error hidden" id="setup-error"></div>
+    </div>
+
+    <div class="save-nudge hidden" id="save-nudge">
+      <span class="nudge-icon" aria-hidden="true">&#128190;</span>
+      <span class="nudge-text" id="save-nudge-text"></span>
+      <button id="btn-nudge-save">Save scan to file</button>
+      <button id="btn-nudge-dismiss" class="link">Not now</button>
     </div>
 
     <button class="secondary" id="btn-back-to-menu">&larr; Back to Main Menu</button>

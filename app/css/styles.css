@@ -162,6 +162,21 @@ button.secondary:hover:not(:disabled) { background: var(--zen-green-btn); color:
 .col-run { flex: 0 0 280px; display: flex; flex-direction: column; gap: 10px; }
 .col-run #btn-scan { width: 100%; padding: 11px 16px; font-size: 13.5px; }
 .col-run #btn-cache { width: 100%; }
+.save-nudge {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin: 14px 0 0; padding: 12px 16px; font-size: 13px;
+  border: 1px solid var(--zen-green-btn); border-radius: 10px; background: #E6F4EE;
+}
+.save-nudge.hidden { display: none; }
+.save-nudge .nudge-icon { font-size: 16px; }
+.save-nudge .nudge-text { flex: 1 1 260px; }
+.save-nudge button { padding: 7px 14px; font-size: 12.5px; }
+.save-nudge .link { padding: 4px 2px; }
+body.dark .save-nudge { background: rgba(2, 213, 142, .08); border-color: rgba(2, 213, 142, .45); }
+body.zen .save-nudge { background: #E3ECE0; border-color: #4B7A48; }
+
+.file-row { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 2px; }
+.file-row .link { padding-left: 0; font-size: 11.5px; }
 .col-run .progress { margin-top: auto; }
 #scan-progress .scan-stats { display: block; margin-top: 3px; }
 #scan-progress.done { position: relative; padding-left: 16px; }
@@ -296,6 +311,7 @@ body.dark .usage-group .gcount { background: var(--zen-mint); color: #04140d; }
 #setup-card.collapsed .col-connections, #setup-card.collapsed .col-sources,
 #setup-card.collapsed .col-run .col-label, #setup-card.collapsed #btn-cache,
 #setup-card.collapsed #btn-plan,
+#setup-card.collapsed .file-row,
 #setup-card.collapsed .plan,
 #setup-card.collapsed .guide { display: none; }
 #setup-card.collapsed h2 { order: 2; margin: 0; font-size: 0; }
@@ -408,7 +424,11 @@ body.dark button { background: var(--zen-mint); color: #04140d; }
 body.dark button:hover:not(:disabled) { background: var(--zen-mint-soft); box-shadow: 0 2px 12px rgba(2, 213, 142, .3); }
 body.dark button:disabled { background: #2e4237; color: #7a8d83; }
 body.dark button.link { background: none; color: var(--zen-mint); }
-body.dark button.link:hover:not(:disabled) { color: var(--zen-mint-soft); }
+/* a link button must restate background and shadow on hover: without them the
+   generic button:hover paints a filled pill, and mint-on-mint is invisible */
+body.dark button.link:hover:not(:disabled) {
+  background: none; box-shadow: none; color: var(--zen-mint-soft);
+}
 body.dark button.secondary {
   background: rgba(2, 213, 142, .08); color: var(--zen-mint); border: 1.5px solid rgba(2, 213, 142, .45);
 }
@@ -567,6 +587,9 @@ body.zen label { color: #6E6455; }
 body.zen input[type=text], body.zen select { background: #FFFEFA; border-color: #E6DEC9; color: #332B22; }
 body.zen input[type=text]:focus, body.zen select:focus {
   border-color: var(--zen-green-bright); box-shadow: 0 0 0 2px rgba(75, 122, 72, .18);
+}
+body.zen button.link:hover:not(:disabled) {
+  background: none; box-shadow: none; color: var(--zen-green-bright);
 }
 body.zen button:disabled { background: #E3DBC8; color: #9A9080; }
 body.zen .card { background: #FFFEFA; border-color: #E6DEC9; box-shadow: 0 2px 12px rgba(75, 122, 72, .08); }
