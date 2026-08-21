@@ -6,3 +6,7 @@ cert.pem
 .DS_Store
 Thumbs.db
 
+# A real scan of a live org. Function source can contain hardcoded
+# credentials, so this never goes into git. See the Tests section of
+# the README for how to produce your own.
+test/fixtures/scan-cache.json

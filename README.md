@@ -212,12 +212,19 @@ Every suite below is a plain Node script with no dependencies.
 | `scan-file.test.js` | Saving and loading a scan: a lossless round trip, every way a bad file is refused, the real `onchange` handler driven with a stubbed reader, and when saving is offered. |
 | `paging.test.js` | The shared paginator: multi-page collection, stopping on `more_records`, both query-separator forms, a missing response key. |
 | `deluge.test.js` | Deluge matching in detail, including a real standalone function from a live org kept verbatim as a fixture. |
-| `real-data.test.js` | Matching against a committed real scan: 420 functions, 233 tables. Asserts properties rather than expected names, so refreshing the fixture does not invalidate it. No hit outside the set of functions that really mention the name; anchoring only ever removes hits; a full sweep stays fast. |
+| `real-data.test.js` | Matching against a real scan you supply: ours is 420 functions and 233 tables. Asserts properties rather than expected names, so refreshing the fixture does not invalidate it. No hit outside the set of functions that really mention the name; anchoring only ever removes hits; a full sweep stays fast. |
 | `verdicts.test.js` | A synthetic org where one field is used by seven sources, one is synced but unreferenced, and one is absent from Analytics, then the hit counts, categories, chips, detail sections and CSV rows. |
 
-`test/fixtures/scan-cache.json` is a real scan of our shared testing org,
-committed so the suites run for anyone who clones the repo. Refresh it by
-running a scan and using **Save scan to file**.
+`real-data.test.js` needs `test/fixtures/scan-cache.json`, which is **not
+in the repo** and skips cleanly when absent. A scan captures Deluge source
+verbatim, and function source in a real org routinely contains hardcoded
+credentials: the first time we tried to commit ours, GitHub's push
+protection caught a live Anthropic API key sitting in one of the functions.
+So a scan file never goes into git.
+
+To run that suite against your own org, scan, use **Save scan to file**, and
+drop the result at `test/fixtures/scan-cache.json`. Its assertions are
+properties rather than expected names, so any org's scan satisfies them.
 
 These cover the analysis layer and the transport rules, not the live API
 calls themselves, which need a real org.
