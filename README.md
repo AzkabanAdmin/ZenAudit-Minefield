@@ -25,12 +25,8 @@ Each scan source is an independent toggle. Turn on only what you need; the more 
 
 **CRM functions and automations** covers Deluge function code, workflow field updates, workflow rules (triggers and firing criteria tracked separately, since "fires the rule" and "filters the rule" are different facts), scoring rules, blueprints, webhooks, and connected workflows (Zoho Flow-triggered rules).
 
-These are one toggle rather than two because they depend on each other. A
-workflow rule's action list is what tells us which module a function
-belongs to, which matters most for a thin automation wrapper whose own
-code never names a module. Scanning function code without the automations
-would quietly weaken every function verdict, so they always run
-together.
+They are one toggle because function matching uses the automation data: a
+rule's action list is what ties a function to a module.
 
 **Reverse Analytics Audit** asks the opposite question: which columns exist in Analytics but have no matching CRM field? That surfaces orphans left behind by a renamed or deleted field, so it's where to start if your Analytics sync broke and you don't know why. It runs standalone and locks out the other sources while selected.
 
