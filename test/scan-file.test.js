@@ -96,6 +96,9 @@ function loadFixtureIntoState() {
   S.workflowRulesScanned = true;
   S.blueprintFields = [];
   S.blueprintFieldsScanned = true;
+  //==========// each entry cost one metered Analytics call
+  S.depCache = { c1: { views: [{ viewName: "Pipeline", viewId: "v9" }],
+    customFormulas: [], aggregateFormulas: [] } };
   el("dc").value = "https://analyticsapi.zoho.com";
 }
 
@@ -109,7 +112,7 @@ const saved = JSON.parse(JSON.stringify(sandbox.scanPayload()));
 //==========// wipe state the way a fresh browser would
 S.tables = []; S.queryTables = []; S.functions = []; S.workflowRules = [];
 S.functionsScanned = false; S.workflowRulesScanned = false; S.viewCount = 0;
-S.scannedAt = null; S.reportsSkippedStale = 0;
+S.scannedAt = null; S.reportsSkippedStale = 0; S.depCache = {};
 
 check("the saved file passes validation", sandbox.validateScanFile(saved), null);
 
@@ -122,6 +125,11 @@ check("scanned flags come back", [S.functionsScanned, S.workflowRulesScanned], [
 check("the view count comes back", S.viewCount, 817);
 check("the scan date comes back", S.scannedAt, "8/20/2026, 6:55:16 PM");
 check("the stale report count comes back", S.reportsSkippedStale, 79);
+
+//==========// the dependents are the expensive part, so losing them would mean paying
+//==========// for the same calls again
+check("fetched dependents come back", Object.keys(S.depCache), ["c1"]);
+check("with their payload intact", S.depCache.c1.views[0].viewName, "Pipeline");
 
 //==========// saving the restored state must produce the same file again
 const resaved = JSON.parse(JSON.stringify(sandbox.scanPayload()));
@@ -154,6 +162,11 @@ check("a scan with no CRM sources is still valid",
 //==========// a file predating the format marker still loads
 check("a file with no format marker is accepted",
   sandbox.validateScanFile({ at: "now", tables: [], queryTables: [] }), null);
+
+//==========// and a file from before dependents were saved restores to an empty cache
+S.depCache = { stale: 1 };
+sandbox.restoreScan({ at: "now", tables: [], queryTables: [] });
+check("a file with no dependents leaves an empty cache", S.depCache, {});
 
 /* **********************************************************************
  *   Housekeeping

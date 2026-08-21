@@ -127,7 +127,11 @@ function openField(f) {
   renderFieldList();
   $("detail-title").innerHTML = "<span class='step'>3</span>Usage: " + esc(f.label);
   $("detail-body").innerHTML = "<p class='section-note'>Checking dependencies&hellip;</p>";
-  checkField(f).then(function () { renderFieldList(); renderDetail(f); });
+  checkField(f).then(function () {
+    renderFieldList();
+    renderDetail(f);
+    persistDependents();
+  });
 }
 
 function renderFieldList() {
@@ -165,7 +169,9 @@ $("btn-check-all").onclick = function () {
     return checkField(f).then(renderFieldList);
   }, function (i, n, f) {
     $("check-progress").innerHTML = "Checking <b>" + i + " / " + n + "</b> &middot; " + esc(f.label);
-    showMini("Checking " + i + " / " + n, n ? i / n : null);
+    //==========// the wait is Zoho's dependents limit, not local work, so say so
+    showMini("Checking " + i + " / " + n + " · asking Analytics what depends on each column",
+      n ? i / n : null);
   }).then(function () {
     hideMini();
     S.checking = false;
@@ -175,6 +181,8 @@ $("btn-check-all").onclick = function () {
     $("check-progress").innerHTML = "All fields checked: <b>" + used + "</b> in use, <b>" +
       rest + "</b> safe or not synced.";
     renderFieldList();
+    //==========// a module's worth of metered calls, kept so this is a one-time cost
+    persistDependents();
   });
 };
 
@@ -392,7 +400,11 @@ $("detail-body").addEventListener("click", function (e) {
     if (!field) return;
     elsewhere.textContent = "Checking…";
     elsewhere.disabled = true;
-    checkElsewhere(field).then(function () { renderFieldList(); renderDetail(field); });
+    checkElsewhere(field).then(function () {
+      renderFieldList();
+      renderDetail(field);
+      persistDependents();
+    });
     return;
   }
   var recheck = e.target.closest("[data-recheck]");

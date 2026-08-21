@@ -57,7 +57,9 @@ var S = {
   modules: [],
   fields: [],
   results: {},        // field api_name -> usage result (see checkField)
-  depCache: {},       // columnId -> dependents payload
+  //==========// columnId -> dependents payload. Each entry cost one metered call,
+  //==========// so it is saved with the scan and never bought twice.
+  depCache: {},
   activeField: null,
   scannedAt: null,
   checking: false,

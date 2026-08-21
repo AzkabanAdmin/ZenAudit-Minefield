@@ -547,7 +547,12 @@ function beginScan() {
   S.scanning = true;
   $("btn-scan").disabled = true;
   $("scan-progress").classList.remove("done");
-  S.tables = []; S.queryTables = []; S.viewCount = 0; S.depCache = {};
+  S.tables = []; S.queryTables = []; S.viewCount = 0;
+  //==========// A deliberate rescan is a request for fresh data, so paid-for
+  //==========// dependents are discarded rather than reused: a chart built since
+  //==========// the last scan would otherwise still read as nothing depending on
+  //==========// the column. Use cached scan and Load scan from file keep them.
+  S.depCache = {};
 }
 
 function failScan(err) {
@@ -1146,7 +1151,9 @@ function scanPayload() {
     at: S.scannedAt, orgId: S.orgId, dc: $("dc").value,
     tables: S.tables, queryTables: S.queryTables, viewCount: S.viewCount,
     viewsUnreadable: S.viewsUnreadable,
-    analyticsScanned: S.analyticsScanned, reportsSkippedStale: S.reportsSkippedStale
+    analyticsScanned: S.analyticsScanned, reportsSkippedStale: S.reportsSkippedStale,
+    //==========// every entry here is a metered call already spent
+    depCache: S.depCache
   };
   SCANS.forEach(function (sc) {
     payload[sc.store] = S[sc.store];
@@ -1155,11 +1162,34 @@ function scanPayload() {
   return payload;
 }
 
+//==========// The browser cache has a size limit a large org can exceed, and the
+//==========// dependents are the biggest and most replaceable part of the payload.
+//==========// So if the full write fails, drop them and keep the scan itself rather
+//==========// than losing both. The saved file has no such limit.
 function cacheScan() {
+  var payload = scanPayload();
   try {
-    localStorage.setItem(SCAN_KEY, JSON.stringify(scanPayload()));
+    localStorage.setItem(SCAN_KEY, JSON.stringify(payload));
+    offerCachedScan();
+    return;
+  } catch (e) { /* fall through and try again without the dependents */ }
+  try {
+    payload.depCache = {};
+    localStorage.setItem(SCAN_KEY, JSON.stringify(payload));
     offerCachedScan();
   } catch (e) { /* best-effort; the file export is the durable route */ }
+}
+
+//==========// Checking fields buys dependents one call at a time, and those are worth
+//==========// keeping. Writing the whole payload per field would stall the UI, so the
+//==========// save is coalesced until the clicking stops.
+var depSaveTimer = null;
+function persistDependents() {
+  if (depSaveTimer) clearTimeout(depSaveTimer);
+  depSaveTimer = setTimeout(function () {
+    depSaveTimer = null;
+    if (S.scannedAt) cacheScan();
+  }, 2500);
 }
 
 /* **********************************************************************
@@ -1297,6 +1327,8 @@ function restoreScan(c) {
   //==========// older caches predate the analyticsScanned flag; infer it from the data
   S.analyticsScanned = c.analyticsScanned != null ? !!c.analyticsScanned : (c.tables || []).length > 0;
   S.reportsSkippedStale = c.reportsSkippedStale || 0;
+  //==========// dependents already paid for, from a cache or a saved file
+  S.depCache = (c.depCache && typeof c.depCache === "object") ? c.depCache : {};
   SCANS.forEach(function (sc) {
     S[sc.store] = c[sc.store] || [];
     S[sc.flag] = !!c[sc.flag];

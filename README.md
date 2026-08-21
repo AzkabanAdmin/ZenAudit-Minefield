@@ -163,6 +163,24 @@ A loaded file is checked before anything reads it, and a scan taken in a
 different org loads with a standing warning that says so, because verdicts
 from the wrong org would look entirely plausible.
 
+**Why a first field check is not instant.** The scan records each table's
+columns, but not what depends on them. "What depends on this column" is a
+separate Analytics call, one per column, metered at 60 a minute, with no
+bulk equivalent. That call is the entire cost of a field check.
+
+Two things keep it in hand. Only the module's own Analytics tables are
+queried, since that is where a CRM field's column lives: on our testing org
+that took a Check All from 331 calls to 34 on Accounts, and from 1,085 to
+246 on Invoices. And every dependents result is saved with the scan, so it
+is bought once. A second Check All after reloading is immediate, and a scan
+loaded from a file arrives with everything you had already checked.
+
+Same-named columns in tables outside the module are listed rather than
+queried, with a note and a **Check them anyway** button, because a Created
+Time in some other app's table is coincidence rather than a dependency. A
+rescan deliberately discards saved dependents, since asking for a fresh
+scan means asking for fresh answers.
+
 **2. Fields.** Pick a module. Click any field to check it on demand, or **Check all fields** to badge the whole module at once. Filter chips (In use / Unused / Not in Analytics / Unchecked) carry live counts, and the search box filters by label or API name.
 
 **3. Usage.** The detail panel shows every place the field is used, grouped by source, with code and SQL snippets where relevant and deep links into CRM and Analytics. **Export CSV** turns the whole module into a client-ready audit artifact. **Recheck this field** re-runs a single field against fresh data.
@@ -220,6 +238,7 @@ Every suite below is a plain Node script with no dependencies.
 | `scan-file.test.js` | Saving and loading a scan: a lossless round trip, every way a bad file is refused, the real `onchange` handler driven with a stubbed reader, and when saving is offered. |
 | `paging.test.js` | The shared paginator: multi-page collection, stopping on `more_records`, both query-separator forms, a missing response key. |
 | `deluge.test.js` | Deluge matching in detail, including a real standalone function from a live org kept verbatim as a fixture. |
+| `check-cost.test.js` | Counts the metered calls a field check makes against the real fixture, so the cost is measured rather than assumed, and asserts that queried plus unchecked accounts for every match. |
 | `real-data.test.js` | Matching against a real scan you supply: ours is 420 functions and 233 tables. Asserts properties rather than expected names, so refreshing the fixture does not invalidate it. No hit outside the set of functions that really mention the name; anchoring only ever removes hits; a full sweep stays fast. |
 | `verdicts.test.js` | A synthetic org where one field is used by seven sources, one is synced but unreferenced, and one is absent from Analytics, then the hit counts, categories, chips, detail sections and CSV rows. |
 
