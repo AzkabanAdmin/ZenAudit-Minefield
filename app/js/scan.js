@@ -246,6 +246,7 @@ var CRM_SCANS = [
 ];
 
 function beginScan() {
+  resetLoaderCaption();
   S.scanning = true;
   $("btn-scan").disabled = true;
   $("scan-progress").classList.remove("done");
@@ -630,7 +631,9 @@ function scanConnectedWorkflows() {
 //==========// The view listing tells us how many tables there are before any of
 //==========// the metered detail reads begin, so the estimate can be given up front
 //==========// rather than leaving someone watching a bar creep for five minutes.
-var LONG_SCAN_MINUTES = 2;
+//==========// three minutes, not two: a short wait does not need a coffee, and the
+//==========// otter earning one should mean something
+var LONG_SCAN_MINUTES = 3;
 
 function noteLongScan(tableCount) {
   var mins = estimateMinutes(tableCount, LIMITS.analytics);

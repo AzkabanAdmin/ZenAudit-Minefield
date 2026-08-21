@@ -157,6 +157,15 @@ function reset(limit) {
   check("269 tables estimates five minutes", sandbox.estimateMinutes(269, L.analytics), 5);
   check("a small org estimates one minute", sandbox.estimateMinutes(20, L.analytics), 1);
 
+  /* **********************************************************************
+   *   The_Otter_Only_Earns_A_Coffee_On_A_Long_Run
+   ********************************************************************** */
+
+  //==========// the small test org has 53 tables and must never see the coffee
+  check("53 tables is not a long run", sandbox.estimateMinutes(53, L.analytics) >= 3, false);
+  check("110 tables is", sandbox.estimateMinutes(110, L.analytics) >= 3, true);
+  check("269 tables certainly is", sandbox.estimateMinutes(269, L.analytics) >= 3, true);
+
   console.log(failures ? "\n" + failures + " FAILURE(S)" : "\nALL RATE LIMIT CHECKS PASSED");
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error("ERROR", e); process.exit(1); });

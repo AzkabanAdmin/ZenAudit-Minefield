@@ -195,8 +195,12 @@ function searchableCode(fn) {
 //==========// Deluge names fields by API name only: record.get("Stage"), input.Stage.
 //==========// Case-sensitive on purpose: Deluge field access is, so a lowercase
 //==========// get("name") provably is not a reference to a field named Name.
+//==========// Hyphens count as part of the token: a Zoho API name is only letters,
+//==========// digits and underscores, so a hyphenated neighbour means this is some
+//==========// other word. Without that, "Content-Type" in every invokeurl header
+//==========// reads as a reference to a field named Type.
 function fieldRefRegex(apiName, flags) {
-  return new RegExp("(^|[^A-Za-z0-9_])" + escRe(apiName) + "([^A-Za-z0-9_]|$)", flags);
+  return new RegExp("(^|[^A-Za-z0-9_-])" + escRe(apiName) + "([^A-Za-z0-9_-]|$)", flags);
 }
 
 /*
@@ -303,7 +307,7 @@ function attributedRefs(code, field, currentModule, moduleVars, wiredModules) {
   //==========// the field is either custom or the module is anchored, and measured
   //==========// against a real 45-function org it adds real callers without adding
   //==========// noise to generic names.
-  var bareRe = new RegExp("(^|[^A-Za-z0-9_\.\"'])" + escRe(apiName) + "(?![A-Za-z0-9_])", "g");
+  var bareRe = new RegExp("(^|[^A-Za-z0-9_.\"'-])" + escRe(apiName) + "(?![A-Za-z0-9_-])", "g");
   while ((m = bareRe.exec(code))) add(m.index + m[0].lastIndexOf(apiName));
 
   refs.sort(function (a, b) { return a - b; });
