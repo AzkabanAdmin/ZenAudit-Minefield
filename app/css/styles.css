@@ -368,31 +368,65 @@ body.dark .usage-group .gcount { background: var(--zen-mint); color: #04140d; }
 }
 .plan-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
 .plan-head b { font-family: var(--font-display); font-size: 14px; }
-.plan-total { margin-left: auto; font-weight: 700; color: var(--zen-green-btn); }
+.plan-when { font-size: 11.5px; color: #8b9691; }
+.plan-total {
+  margin-left: auto; font-family: var(--font-display); font-weight: 700; font-size: 13.5px;
+  color: var(--zen-green-btn); font-variant-numeric: tabular-nums;
+}
 .plan-group {
-  margin: 14px 0 6px; font-family: var(--font-display); font-size: 11px; font-weight: 700;
-  letter-spacing: .09em; text-transform: uppercase; color: #6b7671;
+  display: flex; align-items: center; gap: 10px;
+  margin: 16px 0 2px; font-family: var(--font-display); font-size: 10.5px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase; color: #6b7671;
+}
+/* a hairline that fills the rest of the row, so groups read as bands */
+.plan-group::after {
+  content: ""; flex: 1 1 auto; height: 1px; background: currentColor; opacity: .18;
 }
 .plan-row {
-  display: grid; grid-template-columns: 22px 1fr auto 110px; align-items: center; gap: 10px;
-  padding: 6px 0; border-top: 1px solid #E8ECEA;
+  display: grid; grid-template-columns: 22px 1fr auto 112px; align-items: center; gap: 10px;
+  padding: 5px 6px; margin: 0 -6px; border-radius: 6px;
+  border-top: 1px solid #E8ECEA;
+  transition: background .14s ease;
 }
 .plan-row:first-of-type { border-top: none; }
-.plan-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.plan-label small { color: #6b7671; margin-left: 6px; }
-.plan-count { color: #6b7671; white-space: nowrap; }
-.plan-time { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.plan-row:hover { background: rgba(10, 94, 60, .06); }
+.plan-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.plan-label small { color: #6b7671; margin-left: 6px; font-weight: 400; }
+.plan-count { color: #6b7671; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* the cost bar lives behind the time, so it adds meaning without adding height */
+.plan-time {
+  position: relative; text-align: right; white-space: nowrap;
+  font-variant-numeric: tabular-nums; padding: 3px 7px; border-radius: 5px;
+}
+.plan-time::before {
+  content: ""; position: absolute; inset: 0 0 0 auto; width: var(--share, 0);
+  border-radius: 5px; background: var(--zen-green-btn); opacity: .16;
+}
 .plan-fixed { color: #9fb3aa; text-align: center; }
-.plan-check input { margin: 0; }
+.plan-check input { margin: 0; cursor: pointer; accent-color: var(--zen-green-btn); }
+
+/* an excluded row stays readable but clearly out of the run */
+.plan-row.off { opacity: .5; }
+.plan-row.off .plan-time::before { display: none; }
+.plan-row.off .plan-label { text-decoration: line-through; text-decoration-thickness: 1px; }
 
 body.dark .plan { background: #0b1310; border-color: #1d2b24; }
 body.dark .plan-row { border-color: #1d2b24; }
+body.dark .plan-row:hover { background: rgba(2, 213, 142, .07); }
 body.dark .plan-group, body.dark .plan-count, body.dark .plan-label small { color: #9fb4a9; }
+body.dark .plan-when { color: #7f8f86; }
 body.dark .plan-total { color: var(--zen-mint); }
+body.dark .plan-time::before { background: var(--zen-mint); opacity: .2; }
+body.dark .plan-check input { accent-color: var(--zen-mint); }
 
 body.zen .plan { background: #F5F0E3; border-color: #E6DEC9; }
 body.zen .plan-row { border-color: #EDE6D4; }
+body.zen .plan-row:hover { background: rgba(75, 122, 72, .08); }
 body.zen .plan-group, body.zen .plan-count, body.zen .plan-label small { color: #6E6455; }
+body.zen .plan-when { color: #8A7F68; }
+body.zen .plan-time::before { background: #4B7A48; opacity: .16; }
+body.zen .plan-check input { accent-color: #4B7A48; }
 
 .guide {
   border: 1px dashed #B9BCBE; border-radius: 12px; padding: 14px 16px;

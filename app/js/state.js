@@ -69,3 +69,6 @@ var S = {
   reverseAuditResults: []  // [{table, module, unmatched}], see reverse-audit.js
 };
 var SCAN_KEY = "fieldcheck.scan.v3";
+//==========// the plan is cached separately: it is cheap to rebuild but slow enough
+//==========// on a big org that reopening the tab should not wait for it
+var PLAN_KEY = "zenaudit.plan.v1";

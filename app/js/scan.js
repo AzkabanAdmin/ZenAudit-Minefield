@@ -33,6 +33,10 @@ function loadOrgs() {
     showError("Could not reach Zoho Analytics through connection \"" +
       $("conn-analytics").value + "\". Check the connection link name and that it is authorized.\n" +
       String(err && err.message || err));
+    //==========// Nothing downstream runs without this call, so a first run with
+    //==========// no Connections set up lands here. Open the setup guide rather
+    //==========// than leaving someone with only an error to go on.
+    $("guide").classList.remove("hidden");
   });
 }
 $("org-pick").onchange = function () { loadWorkspaces(); };
@@ -105,7 +109,11 @@ function loadFolders() {
         });
       });
     }).catch(function () { /* best-effort; that workspace just scans unfiltered */ });
-  }).then(renderFolderList);
+  }).then(function () {
+    renderFolderList();
+    //==========// folders are the last thing boot needs before a plan can be shown
+    if (S.sdkReady) showPlanOnOpen();
+  });
 }
 
 function renderFolderList() {
@@ -323,28 +331,91 @@ function planReports() {
   }).catch(function () { return null; });
 }
 
-$("btn-plan").onclick = function () {
-  clearError();
+/* **********************************************************************
+ *   Remembering_The_Plan
+ *
+ *   Listing is only a dozen calls, but on a large org it still takes the
+ *   better part of a minute, and the plan is the first thing you want to
+ *   see. So it is cached per org and shown immediately on open, with a
+ *   re-check for when the org has changed underneath it.
+ *
+ *   Only the counts are stored. Folder selections live in S.folders, which
+ *   comes from a live call, so the rows are re-linked by folder id after a
+ *   restore rather than carrying stale objects.
+ ********************************************************************** */
+
+function cachePlan() {
+  if (!S.plan) return;
+  var payload = {
+    crmZgid: S.crmZgid, at: new Date().toLocaleString(),
+    analytics: S.plan.analytics.map(function (r) {
+      return { wsId: r.wsId, wsName: r.wsName, folderId: r.folderId,
+        folderName: r.folderName, tables: r.tables };
+    }),
+    crm: S.plan.crm, reports: S.plan.reports
+  };
+  try { localStorage.setItem(PLAN_KEY, JSON.stringify(payload)); } catch (e) { /* best-effort */ }
+}
+
+function restoreCachedPlan() {
+  var raw = localStorage.getItem(PLAN_KEY);
+  if (!raw) return false;
+  try {
+    var c = JSON.parse(raw);
+    if (!c || !c.crmZgid || !S.crmZgid || c.crmZgid !== S.crmZgid) return false;
+    if (!Array.isArray(c.analytics)) return false;
+    //==========// re-link each row to the live folder, so ticking still works
+    c.analytics.forEach(function (r) {
+      r.folder = S.folders.filter(function (f) {
+        return f.wsId === r.wsId && String(f.folderId) === String(r.folderId);
+      })[0];
+    });
+    S.plan = { analytics: c.analytics, crm: c.crm || [], reports: c.reports || null, at: c.at };
+    return true;
+  } catch (e) { return false; }
+}
+
+//==========// the button says what it will do, which depends on whether a plan exists
+function updatePlanButton() {
+  $("btn-plan").textContent = S.plan ? "Re-check scan size" : "Check scan size";
+}
+
+//==========// Shown on open once the folder list is in. The plan doubles as the
+//==========// connection check: if Analytics never answered there is nothing to
+//==========// show, and a CRM source that cannot be listed says so on its own row.
+function showPlanOnOpen() {
+  if (!S.workspaces.length) { updatePlanButton(); return; }
+  if (restoreCachedPlan()) { renderPlan(); updatePlanButton(); return; }
+  runPlan(true);
+}
+
+function runPlan(quietly) {
   var btn = $("btn-plan");
   btn.disabled = true;
-  btn.textContent = "Checking…";
-  showLoader("Listing what is there…");
-  planAnalytics().then(function (analytics) {
+  btn.textContent = "Checking\u2026";
+  if (!quietly) showLoader("Listing what is there\u2026");
+  return planAnalytics().then(function (analytics) {
     return planCrm().then(function (crm) {
       return planReports().then(function (reports) {
         S.plan = { analytics: analytics, crm: crm, reports: reports };
+        cachePlan();
         renderPlan();
       });
     });
   }).catch(function (err) {
-    showError(String(err && err.message || err));
+    if (!quietly) showError(String(err && err.message || err));
   }).then(function () {
-    hideLoader();
+    if (!quietly) hideLoader();
     btn.disabled = false;
-    btn.textContent = "Re-check scan size";
+    updatePlanButton();
     $("scan-progress").innerHTML = "";
     updateScanButton();
   });
+}
+
+$("btn-plan").onclick = function () {
+  clearError();
+  runPlan(false);
 };
 
 //==========// seconds the current selection would cost, so the total tracks ticking
@@ -360,12 +431,19 @@ function planSeconds() {
   return secs;
 }
 
-function planRow(label, detail, secs, checkbox) {
+//==========// The cost bar is the point of the table: a folder worth dropping is
+//==========// obvious from its length, and it costs no extra row height because it
+//==========// sits behind the time cell.
+function planRow(label, detail, secs, checkbox, share) {
+  var bar = share > 0
+    ? " style='--share:" + Math.max(4, Math.round(share * 100)) + "%'"
+    : "";
   return "<div class='plan-row'>" +
     "<span class='plan-check'>" + (checkbox || "") + "</span>" +
     "<span class='plan-label'>" + label + "</span>" +
     "<span class='plan-count'>" + detail + "</span>" +
-    "<span class='plan-time'>" + (secs == null ? "" : describeDuration(secs)) + "</span>" +
+    "<span class='plan-time'" + bar + ">" +
+    (secs == null ? "" : describeDuration(secs)) + "</span>" +
     "</div>";
 }
 
@@ -374,6 +452,17 @@ function renderPlan() {
   if (!plan) return;
   var html = "";
 
+  //==========// bars are relative to the most expensive row in the whole plan
+  var peak = 0;
+  plan.analytics.forEach(function (r) {
+    peak = Math.max(peak, estimateSeconds(r.tables, LIMITS.analytics));
+  });
+  plan.crm.forEach(function (r) {
+    peak = Math.max(peak, estimateSeconds(r.calls || 0, LIMITS.crm));
+  });
+  if (plan.reports) peak = Math.max(peak, estimateSeconds(plan.reports.calls, LIMITS.crm));
+  function share(secs) { return peak > 0 ? secs / peak : 0; }
+
   if (plan.analytics.length) {
     html += "<div class='plan-group'>Zoho Analytics tables</div>";
     plan.analytics.forEach(function (r, i) {
@@ -381,9 +470,9 @@ function renderPlan() {
       var box = r.folder
         ? "<input type='checkbox' data-plan-folder='" + i + "'" + (on ? " checked" : "") + ">"
         : "<span class='plan-fixed' title='no folder information, always scanned'>&bull;</span>";
+      var secs = estimateSeconds(r.tables, LIMITS.analytics);
       html += planRow(esc(r.folderName) + " <small>" + esc(r.wsName) + "</small>",
-        r.tables + " " + qty(r.tables, "table"),
-        estimateSeconds(r.tables, LIMITS.analytics), box);
+        r.tables + " " + qty(r.tables, "table"), secs, box, on ? share(secs) : 0);
     });
   }
 
@@ -391,17 +480,18 @@ function renderPlan() {
     html += "<div class='plan-group'>CRM functions and automations</div>";
     plan.crm.forEach(function (r) {
       var detail = r.items == null ? "could not list" : r.items + " found";
-      html += planRow(esc(r.label), detail,
-        r.calls ? estimateSeconds(r.calls, LIMITS.crm) : 0, "");
+      var secs = r.calls ? estimateSeconds(r.calls, LIMITS.crm) : 0;
+      html += planRow(esc(r.label), detail, secs, "", share(secs));
     });
   }
 
   if (plan.reports) {
     html += "<div class='plan-group'>CRM reports</div>";
+    var rsecs = estimateSeconds(plan.reports.calls, LIMITS.crm);
     html += planRow("reports to read",
       plan.reports.items + " recent" +
       (plan.reports.skipped ? ", " + plan.reports.skipped + " stale and skipped" : ""),
-      estimateSeconds(plan.reports.calls, LIMITS.crm), "");
+      rsecs, "", share(rsecs));
   }
 
   $("plan-body").innerHTML = html || "<p class='section-note'>Nothing selected to scan.</p>";
@@ -413,7 +503,9 @@ function renderPlan() {
     cb.onchange = function () {
       var row = S.plan.analytics[Number(cb.getAttribute("data-plan-folder"))];
       if (row && row.folder) row.folder.selected = cb.checked;
+      cb.closest(".plan-row").classList.toggle("off", !cb.checked);
       refreshPlanTotal();
+      cachePlan();
       renderFolderList();
       updateScanButton();
     };
@@ -423,6 +515,8 @@ function renderPlan() {
 function refreshPlanTotal() {
   var secs = planSeconds();
   $("plan-total").textContent = secs == null ? "" : describeDuration(secs) + " to scan";
+  var when = $("plan-when");
+  if (when) when.textContent = S.plan && S.plan.at ? "listed " + S.plan.at : "";
 }
 
 /* **********************************************************************

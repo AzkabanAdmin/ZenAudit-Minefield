@@ -115,12 +115,20 @@ Automation matching keys off module **id**, not API name, because different CRM 
 
 **1. Connect and scan.** Pick your data center and org, toggle the sources you want, then Scan.
 
-In a large org, hit **Check scan size** first. Listing what exists costs a
-few seconds and about a dozen API calls; reading the detail costs one
-metered call per Analytics table, per function and per rule, which is
-thousands of calls and minutes of waiting. So the plan lists first and
-shows what a scan would cost, broken down by Analytics folder and by CRM
-source, sorted by what each one costs, with a running total.
+The plan runs itself when the tab opens, so the table is there before you
+ask. Listing what exists costs a few seconds and about a dozen API calls;
+reading the detail costs one metered call per Analytics table, per function
+and per rule, which is thousands of calls and minutes of waiting. So the
+plan shows what a scan would cost, broken down by Analytics folder and by
+CRM source, sorted by what each one costs, with a bar per row and a running
+total. Unticking a row strikes it through and takes it off the total.
+
+The plan is cached per org, so reopening the tab shows the last listing
+instantly with the time it was taken, and **Re-check scan size** refreshes
+it. It also doubles as the connection check: nothing downstream of the
+Analytics call runs without it, so a first run with no Connections set up
+gets the setup guide rather than a plan, and any CRM source that cannot be
+listed says so on its own row instead of failing the whole thing.
 
 Folders are the useful lever. A consolidated workspace mixes several apps,
 and for a CRM field audit most of those tables are noise. On our own
