@@ -72,9 +72,16 @@ function loadWorkspaces() {
 //==========// Only the reverse audit needs the workspace and folder pickers, so
 //==========// they stay hidden otherwise. Hiding does not reset the selection.
 function updateSelectorVisibility() {
-  var show = $("include-reverse-audit").checked;
-  $("ws-section").classList.toggle("hidden", !show || !S.workspaces.length);
+  $("ws-section").classList.toggle("hidden", !S.workspaces.length);
   renderFolderList();
+}
+
+//==========// Folder pills are only shown for the reverse audit, where the list is
+//==========// already narrowed to the CRM data folder. For a normal scan there can
+//==========// be dozens, so the scan plan does that job instead: same folders, with
+//==========// a table count and a time against each.
+function foldersArePickable() {
+  return $("include-reverse-audit").checked;
 }
 
 //==========// A consolidated workspace mixes several apps' tables, which confuses
@@ -90,7 +97,11 @@ function loadFolders() {
         S.folders.push({
           folderId: f.folderId, folderName: f.folderName,
           wsId: w.workspaceId, wsName: w.workspaceName,
-          selected: f.folderName.toLowerCase().indexOf("zoho crm modules (data)") >= 0
+          //==========// everything is in scope until someone narrows it deliberately
+          selected: true,
+          //==========// the folder Zoho syncs CRM data into, which is the one the
+          //==========// reverse audit wants on its own
+          isCrmData: f.folderName.toLowerCase().indexOf("zoho crm modules (data)") >= 0
         });
       });
     }).catch(function () { /* best-effort; that workspace just scans unfiltered */ });
@@ -99,12 +110,12 @@ function loadFolders() {
 
 function renderFolderList() {
   var section = $("folder-section");
-  var show = $("include-reverse-audit").checked;
+  if (!foldersArePickable()) { section.classList.add("hidden"); return; }
   var visible = S.folders.filter(function (f) {
     var ws = S.workspaces.filter(function (w) { return w.workspaceId === f.wsId; })[0];
     return ws && ws.selected;
   }).sort(function (a, b) { return (b.selected ? 1 : 0) - (a.selected ? 1 : 0); });
-  if (!show || !visible.length) { section.classList.add("hidden"); return; }
+  if (!visible.length) { section.classList.add("hidden"); return; }
   section.classList.remove("hidden");
   var box = $("folder-list");
   box.innerHTML = "";
@@ -191,9 +202,19 @@ function listOnePage(path, key) {
 
 //==========// The reverse audit runs the opposite direction and runs standalone,
 //==========// so selecting it locks out the normal sources instead of combining.
+//==========// the reverse audit sweeps every column, so unrelated apps' tables are
+//==========// pure noise for it; narrow to the CRM data folder when it is switched on
+function applyCrmDataFolderPreset() {
+  var anyCrmData = S.folders.some(function (f) { return f.isCrmData; });
+  if (!anyCrmData) return;
+  S.folders.forEach(function (f) { f.selected = !!f.isCrmData; });
+}
+
 $("include-reverse-audit").onchange = function () {
   var cb = $("include-reverse-audit");
   var exclusive = cb.checked;
+  if (exclusive) applyCrmDataFolderPreset();
+  else S.folders.forEach(function (f) { f.selected = true; });
   ["include-an", "include-crm", "include-reports"].forEach(function (id) {
     var other = $(id);
     other.disabled = exclusive;
@@ -224,6 +245,184 @@ function updateScanButton() {
   if (an) label += " · " + ws + (ws === 1 ? " workspace" : " workspaces");
   btn.textContent = srcs ? label : "Scan";
   btn.disabled = !!(S.scanning || !S.sdkReady || !srcs || (an && !ws));
+}
+
+/* **********************************************************************
+ *   Scan_Plan
+ *
+ *   Listing what exists is cheap, about a dozen calls. Reading the detail
+ *   is not: one metered call per Analytics table, per function, and per
+ *   rule, which is thousands of calls and minutes of waiting in a real
+ *   org. So the plan runs the listing on its own first and shows what a
+ *   scan would cost, broken down far enough to act on.
+ *
+ *   Folders are the useful lever. A consolidated workspace mixes several
+ *   apps, and for a CRM field audit most of those tables are noise, so
+ *   dropping a folder can take minutes off the run.
+ ********************************************************************** */
+
+//==========// per-folder table counts, which is the granularity worth choosing at
+function planAnalytics() {
+  var targets = selectedWorkspaces();
+  if (!$("include-an").checked || !targets.length) return Promise.resolve([]);
+  var rows = [];
+  return runQueue(targets, function (w) {
+    $("scan-progress").innerHTML = "Listing views in <b>" + esc(w.workspaceName) + "</b>&hellip;";
+    return analyticsGet("/workspaces/" + w.workspaceId + "/views", { noOfResult: 1000 })
+      .then(function (body) {
+        var byFolder = {};
+        ((body.data && body.data.views) || []).forEach(function (v) {
+          if (v.viewType !== "Table" && v.viewType !== "QueryTable") return;
+          var key = v.folderId == null ? "" : String(v.folderId);
+          byFolder[key] = (byFolder[key] || 0) + 1;
+        });
+        Object.keys(byFolder).forEach(function (folderId) {
+          var folder = S.folders.filter(function (f) {
+            return f.wsId === w.workspaceId && String(f.folderId) === folderId;
+          })[0];
+          rows.push({
+            wsId: w.workspaceId, wsName: w.workspaceName,
+            folderId: folderId, folderName: folder ? folder.folderName : "(unfiled)",
+            tables: byFolder[folderId], folder: folder
+          });
+        });
+      })
+      .catch(function () { /* a workspace we cannot list simply contributes nothing */ });
+  }).then(function () {
+    rows.sort(function (a, b) { return b.tables - a.tables; });
+    return rows;
+  });
+}
+
+//==========// one list call per CRM source, which is where the counts come from
+function planCrm() {
+  if (!$("include-crm").checked) return Promise.resolve([]);
+  var rows = [];
+  function count(label, path, key, detailPerItem) {
+    $("scan-progress").innerHTML = "Listing " + esc(label) + "&hellip;";
+    return listAllPages(path, key).then(function (items) {
+      rows.push({ label: label, items: items.length, calls: detailPerItem ? items.length : 0 });
+    }).catch(function () { rows.push({ label: label, items: null, calls: 0 }); });
+  }
+  return count("Deluge functions", "/settings/functions", "functions", true)
+    .then(function () { return count("workflow rules", "/settings/automation/workflow_rules", "workflow_rules", true); })
+    .then(function () { return count("field updates", "/settings/automation/field_updates", "field_updates", false); })
+    .then(function () { return count("scoring rules", "/settings/automation/scoring_rules", "scoring_rules", false); })
+    .then(function () { return count("blueprints", "/settings/blueprints", "blueprints", false); })
+    .then(function () { return count("webhooks", "/settings/automation/webhooks", "webhooks", false); })
+    .then(function () { return rows; });
+}
+
+function planReports() {
+  if (!$("include-reports").checked) return Promise.resolve(null);
+  $("scan-progress").innerHTML = "Listing CRM reports&hellip;";
+  return crmGet("/Reports").then(function (body) {
+    var all = (body && (body.reports || body.Reports)) || [];
+    var fresh = all.filter(wasRecentlyAccessed);
+    return { items: fresh.length, skipped: all.length - fresh.length, calls: fresh.length };
+  }).catch(function () { return null; });
+}
+
+$("btn-plan").onclick = function () {
+  clearError();
+  var btn = $("btn-plan");
+  btn.disabled = true;
+  btn.textContent = "Checking…";
+  showLoader("Listing what is there…");
+  planAnalytics().then(function (analytics) {
+    return planCrm().then(function (crm) {
+      return planReports().then(function (reports) {
+        S.plan = { analytics: analytics, crm: crm, reports: reports };
+        renderPlan();
+      });
+    });
+  }).catch(function (err) {
+    showError(String(err && err.message || err));
+  }).then(function () {
+    hideLoader();
+    btn.disabled = false;
+    btn.textContent = "Re-check scan size";
+    $("scan-progress").innerHTML = "";
+    updateScanButton();
+  });
+};
+
+//==========// seconds the current selection would cost, so the total tracks ticking
+//==========// a folder on or off without re-listing anything
+function planSeconds() {
+  if (!S.plan) return null;
+  var secs = 0;
+  S.plan.analytics.forEach(function (r) {
+    if (!r.folder || r.folder.selected) secs += estimateSeconds(r.tables, LIMITS.analytics);
+  });
+  S.plan.crm.forEach(function (r) { secs += estimateSeconds(r.calls, LIMITS.crm); });
+  if (S.plan.reports) secs += estimateSeconds(S.plan.reports.calls, LIMITS.crm);
+  return secs;
+}
+
+function planRow(label, detail, secs, checkbox) {
+  return "<div class='plan-row'>" +
+    "<span class='plan-check'>" + (checkbox || "") + "</span>" +
+    "<span class='plan-label'>" + label + "</span>" +
+    "<span class='plan-count'>" + detail + "</span>" +
+    "<span class='plan-time'>" + (secs == null ? "" : describeDuration(secs)) + "</span>" +
+    "</div>";
+}
+
+function renderPlan() {
+  var plan = S.plan;
+  if (!plan) return;
+  var html = "";
+
+  if (plan.analytics.length) {
+    html += "<div class='plan-group'>Zoho Analytics tables</div>";
+    plan.analytics.forEach(function (r, i) {
+      var on = !r.folder || r.folder.selected;
+      var box = r.folder
+        ? "<input type='checkbox' data-plan-folder='" + i + "'" + (on ? " checked" : "") + ">"
+        : "<span class='plan-fixed' title='no folder information, always scanned'>&bull;</span>";
+      html += planRow(esc(r.folderName) + " <small>" + esc(r.wsName) + "</small>",
+        r.tables + " " + qty(r.tables, "table"),
+        estimateSeconds(r.tables, LIMITS.analytics), box);
+    });
+  }
+
+  if (plan.crm.length) {
+    html += "<div class='plan-group'>CRM functions and automations</div>";
+    plan.crm.forEach(function (r) {
+      var detail = r.items == null ? "could not list" : r.items + " found";
+      html += planRow(esc(r.label), detail,
+        r.calls ? estimateSeconds(r.calls, LIMITS.crm) : 0, "");
+    });
+  }
+
+  if (plan.reports) {
+    html += "<div class='plan-group'>CRM reports</div>";
+    html += planRow("reports to read",
+      plan.reports.items + " recent" +
+      (plan.reports.skipped ? ", " + plan.reports.skipped + " stale and skipped" : ""),
+      estimateSeconds(plan.reports.calls, LIMITS.crm), "");
+  }
+
+  $("plan-body").innerHTML = html || "<p class='section-note'>Nothing selected to scan.</p>";
+  $("plan").classList.remove("hidden");
+  refreshPlanTotal();
+
+  //==========// unticking a folder drops it from the scan and from the total
+  Array.prototype.forEach.call($("plan-body").querySelectorAll("[data-plan-folder]"), function (cb) {
+    cb.onchange = function () {
+      var row = S.plan.analytics[Number(cb.getAttribute("data-plan-folder"))];
+      if (row && row.folder) row.folder.selected = cb.checked;
+      refreshPlanTotal();
+      renderFolderList();
+      updateScanButton();
+    };
+  });
+}
+
+function refreshPlanTotal() {
+  var secs = planSeconds();
+  $("plan-total").textContent = secs == null ? "" : describeDuration(secs) + " to scan";
 }
 
 /* **********************************************************************
@@ -298,7 +497,7 @@ function runFieldScan() {
 
   //==========// sources run one after another to stay inside API rate limits
   var steps = [];
-  if (doAn) steps.push(function () { return scanAnalytics(targets); });
+  if (doAn) steps.push(function () { return scanAnalytics(targets, true); });
   if (doReports) steps.push(scanReports);
   if (doCrm) CRM_SCANS.forEach(function (fn) { steps.push(fn); });
 

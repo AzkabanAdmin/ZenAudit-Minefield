@@ -154,8 +154,21 @@ function reset(limit) {
    *   Estimates
    ********************************************************************** */
 
-  check("269 tables estimates five minutes", sandbox.estimateMinutes(269, L.analytics), 5);
+  //==========// estimates use perCallMs, the observed cost, not the throttle floor,
+  //==========// so they do not promise a run that finishes faster than it can
+  check("estimates are not faster than the throttle allows",
+    L.analytics.perCallMs >= L.analytics.minIntervalMs, true);
+  check("crm estimates account for round trip, not just the floor",
+    L.crm.perCallMs > L.crm.minIntervalMs, true);
+
+  check("269 tables estimates six minutes", sandbox.estimateMinutes(269, L.analytics), 6);
   check("a small org estimates one minute", sandbox.estimateMinutes(20, L.analytics), 1);
+  check("420 functions estimates two minutes", sandbox.estimateMinutes(420, L.crm), 2);
+
+  //==========// the phrasing used in the plan and the loader
+  check("a short run is described loosely", sandbox.describeDuration(8), "a few seconds");
+  check("a medium run is described in seconds", sandbox.describeDuration(45), "45 seconds");
+  check("a long run is described in minutes", sandbox.describeDuration(310), "about 5 minutes");
 
   /* **********************************************************************
    *   The_Otter_Only_Earns_A_Coffee_On_A_Long_Run
@@ -164,6 +177,8 @@ function reset(limit) {
   //==========// the small test org has 53 tables and must never see the coffee
   check("53 tables is not a long run", sandbox.estimateMinutes(53, L.analytics) >= 3, false);
   check("110 tables is", sandbox.estimateMinutes(110, L.analytics) >= 3, true);
+  check("and the small test org stays under the threshold",
+    sandbox.estimateMinutes(53, L.analytics), 2);
   check("269 tables certainly is", sandbox.estimateMinutes(269, L.analytics) >= 3, true);
 
   console.log(failures ? "\n" + failures + " FAILURE(S)" : "\nALL RATE LIMIT CHECKS PASSED");

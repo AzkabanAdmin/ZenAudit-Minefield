@@ -105,5 +105,30 @@ writeCacheFor("org-B");
 sandbox.offerCachedScan();
 check("the button is hidden for a different org", el("btn-cache")._c.has("hidden"), true);
 
+/* **********************************************************************
+ *   Folder_Gating
+ *
+ *   The scan plan narrows a run by unticking folders, so folderAllowed is
+ *   what has to honour it. Getting this wrong would drop tables silently,
+ *   which is the failure the rate limiter work was all about.
+ ********************************************************************** */
+
+S.folders = [
+  { wsId: "w1", folderId: 10, folderName: "CRM Modules (Data)", selected: true },
+  { wsId: "w1", folderId: 11, folderName: "Zoho Books", selected: false },
+  { wsId: "w2", folderId: 20, folderName: "Tables & Reports", selected: true },
+];
+
+check("a selected folder is scanned", sandbox.folderAllowed("w1", 10), true);
+check("an unticked folder is skipped", sandbox.folderAllowed("w1", 11), false);
+check("a folder in another workspace is judged on its own", sandbox.folderAllowed("w2", 20), true);
+
+//==========// an unknown folder is scanned rather than dropped: better to do extra
+//==========// work than to lose a table without saying so
+check("an unrecognised folder id is still scanned", sandbox.folderAllowed("w1", 999), true);
+
+//==========// and a workspace we have no folder data for is never filtered
+check("a workspace with no folder data is unfiltered", sandbox.folderAllowed("w3", 1), true);
+
 console.log(failures ? "\n" + failures + " FAILURE(S)" : "\nALL CACHE ORG CHECKS PASSED");
 process.exit(failures ? 1 : 0);

@@ -99,7 +99,24 @@ Automation matching keys off module **id**, not API name, because different CRM 
 
 ## Using it
 
-**1. Connect and scan.** Pick your data center and org, toggle the sources you want, then Scan. Analytics workspace and folder pickers appear only for the Reverse Analytics Audit, which is the one operation that needs the extra narrowing. Results cache in `localStorage`, so "Use cached scan" skips a re-scan next time.
+**1. Connect and scan.** Pick your data center and org, toggle the sources you want, then Scan.
+
+In a large org, hit **Check scan size** first. Listing what exists costs a
+few seconds and about a dozen API calls; reading the detail costs one
+metered call per Analytics table, per function and per rule, which is
+thousands of calls and minutes of waiting. So the plan lists first and
+shows what a scan would cost, broken down by Analytics folder and by CRM
+source, sorted by what each one costs, with a running total.
+
+Folders are the useful lever. A consolidated workspace mixes several apps,
+and for a CRM field audit most of those tables are noise. On our own
+testing org, unticking four Zoho Books folders took the run from about
+seven minutes to five, and the scan then read 141 tables instead of 269.
+
+Zoho meters Analytics metadata at 60 calls a minute, so a big scan is
+genuinely slow. The widget says how long up front, shows the time
+remaining as it goes, and hands the otter a coffee for runs over three
+minutes. Analytics workspace and folder pickers appear only for the Reverse Analytics Audit, which is the one operation that needs the extra narrowing. Results cache in `localStorage`, so "Use cached scan" skips a re-scan next time.
 
 **2. Fields.** Pick a module. Click any field to check it on demand, or **Check all fields** to badge the whole module at once. Filter chips (In use / Unused / Not in Analytics / Unchecked) carry live counts, and the search box filters by label or API name.
 
@@ -209,6 +226,8 @@ Key API references:
 - Analytics dependent views inside dashboards ("KPI widgets") come back with a bare numeric `viewName`; the UI collapses them into a count rather than showing meaningless ID rows.
 - CRM reports are filtered by recency **before** fetching detail: not run in the past year, or never run and created over 6 months ago, means skipped. A year of unused reports would otherwise be hundreds of detail calls.
 - List endpoints page at 200 per page (`info.more_records`). Every list call goes through one shared paginator, so no source truncates on a large org.
+- Zoho Analytics meters metadata calls at **60 a minute** and rejects the rest with error 6045. Every call is spaced to stay under that. Before this, a 269-table org read 49 tables and silently discarded the other 216, so verdicts rested on a fifth of the data. Anything still unreadable is now counted and reported rather than dropped.
+- The scan cache is keyed to the CRM org. `localStorage` is scoped to `crm.zoho.com`, not to the org, so without that key switching orgs offers you the previous client's scan.
 - Blueprint per-transition mandatory fields aren't included: that API needs transition IDs with no documented way to enumerate them.
 
 ## Competition deliverables (due Aug 24)

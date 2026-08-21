@@ -123,9 +123,16 @@ function invokeConn(connName, url, headers) {
  *   and guards against a faster connection outrunning the limit.
  ********************************************************************** */
 
+/*
+ *   minIntervalMs is the floor the limiter enforces. perCallMs is what a
+ *   call actually costs in practice and is only used for estimates: for
+ *   Analytics the throttle dominates, but for CRM the round trip does, so
+ *   estimating from the floor alone would promise half the real time.
+ *   Both perCallMs figures come from timing real scans.
+ */
 var LIMITS = {
-  analytics: { minIntervalMs: 1100, nextAt: 0, retryWaitMs: 45000, hits: 0 },
-  crm: { minIntervalMs: 120, nextAt: 0, retryWaitMs: 20000, hits: 0 }
+  analytics: { minIntervalMs: 1100, perCallMs: 1150, nextAt: 0, retryWaitMs: 45000, hits: 0 },
+  crm: { minIntervalMs: 120, perCallMs: 250, nextAt: 0, retryWaitMs: 20000, hits: 0 }
 };
 
 function wait(ms) {
@@ -159,9 +166,21 @@ function limitedGet(limit, connName, url, headers) {
     });
 }
 
-//==========// how long a run of metered calls will take, in whole minutes
+//==========// how long a run of metered calls will take, in seconds
+function estimateSeconds(callCount, limit) {
+  return Math.round((callCount * limit.perCallMs) / 1000);
+}
+
+//==========// the same in whole minutes, rounded up, for coarse warnings
 function estimateMinutes(callCount, limit) {
-  return Math.ceil((callCount * limit.minIntervalMs) / 60000);
+  return Math.ceil((callCount * limit.perCallMs) / 60000);
+}
+
+//==========// "45 seconds", "about 6 minutes"
+function describeDuration(secs) {
+  if (secs < 20) return "a few seconds";
+  if (secs < 90) return secs + " seconds";
+  return "about " + Math.round(secs / 60) + " minutes";
 }
 
 function analyticsGet(path, config) {

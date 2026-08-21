@@ -8,9 +8,11 @@
 //==========// own automation data, which is ground truth: a workflow field update
 //==========// names both the module and the field it writes.
 //==========//
-//==========// The cache holds real function source, so it is gitignored rather than
-//==========// committed and this suite skips without it. To refresh, run a scan and
-//==========// export the localStorage scan key to test/fixtures/scan-cache.json.
+//==========// The fixture is a real scan of Zenatta's shared testing org, committed
+//==========// so the suite runs for anyone cloning the repo. To refresh it, run a
+//==========// scan and export the localStorage scan key to
+//==========// test/fixtures/scan-cache.json. The skip below keeps the suite honest
+//==========// if the file is ever absent.
 //==========// Run with: npm test
 
 const fs = require("fs");

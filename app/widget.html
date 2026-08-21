@@ -239,7 +239,7 @@
             <div id="ws-list"></div>
           </div>
           <div id="folder-section" class="hidden">
-            <label>Analytics folders: select to include. The typical folder path is selected by default.</label>
+            <label>Analytics folders: the CRM data folder is selected, since the reverse audit reads every column</label>
             <div id="folder-list"></div>
           </div>
         </div>
@@ -247,10 +247,24 @@
         <div class="setup-col col-run">
           <div class="col-label">Run</div>
           <button id="btn-scan" disabled>Scan</button>
+          <button id="btn-plan" class="secondary">Check scan size</button>
           <button id="btn-cache" class="secondary hidden">Use cached scan</button>
           <div class="progress" id="scan-progress"></div>
         </div>
       </div>
+      <!-- ********************************************************************
+           Scan_Plan
+           ******************************************************************** -->
+      <div class="plan hidden" id="plan">
+        <div class="plan-head">
+          <b>What a scan would cover</b>
+          <span class="plan-total" id="plan-total"></span>
+        </div>
+        <p class="section-note">Listing costs a few seconds. Untick anything you do not need,
+          then Scan. Analytics tables are the slow part, since Zoho meters them at 60 a minute.</p>
+        <div id="plan-body"></div>
+      </div>
+
       <div class="guide hidden" id="guide">
         <b>One-time setup</b>. In CRM go to Setup &gt; Developer Space &gt; Connections &gt; Create Connection,
         pick the <b>Zoho OAuth</b> service, then:

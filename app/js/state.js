@@ -46,6 +46,8 @@ var S = {
   //==========// a scan that could not read every table has to say so, rather than
   //==========// letting a verdict imply coverage it does not have
   viewsUnreadable: 0,
+  //==========// what a scan would cost, from the listing pass (see Scan_Plan)
+  plan: null,
   modules: [],
   fields: [],
   results: {},        // field api_name -> usage result (see checkField)
