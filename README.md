@@ -12,23 +12,30 @@ When you delete a CRM field, Zoho warns you about some workflows and blueprints.
 
 Today the only real "solution" is opening every report and script by hand. ZenAudit MineField closes that gap, and doubles as a dead-field detector for org cleanup engagements: fields that nothing references anywhere are exactly the ones safe to retire.
 
+It is built for the orgs that actually need it, which are the messy ones.
+On our own testing org that means 233 Analytics tables, 420 Deluge
+functions and 65 workflow rules, so the widget plans a scan before running
+it, stays inside Zoho's rate limits, says what it could not read, and lets
+you keep a scan as a file rather than repeating it.
+
 ## What it checks
 
-Each scan source is an independent toggle. Turn on only what you need; the more you enable, the more confident the "safe to delete" verdict becomes.
+Each row below is one toggle. Turn on only what you need; the more you
+enable, the more confident the "safe to delete" verdict becomes.
 
 | Source | What it finds | Default |
 |---|---|---|
 | **Zoho Analytics** | Dependent views, formula columns, aggregate formulas, and query table SQL | On |
-| **CRM Deluge functions** | Function code that references the field's API name | On |
-| **CRM Automations** | Six sub-scans in one toggle (below) | Off |
+| **CRM functions and automations** | Deluge code plus six kinds of automation, seven sub-scans in one toggle (below) | On |
 | **CRM Reports** | Report columns and filter criteria | Off |
 | **Reverse Analytics Audit** | Runs the opposite direction, standalone (below) | Off |
 
-**CRM Automations** covers workflow field updates, workflow rules (triggers and firing criteria tracked separately, since "fires the rule" and "filters the rule" are different facts), scoring rules, blueprints, webhooks, and connected workflows (Zoho Flow-triggered rules).
+**CRM functions and automations** covers Deluge function code, workflow field updates, workflow rules (triggers and firing criteria tracked separately, since "fires the rule" and "filters the rule" are different facts), scoring rules, blueprints, webhooks, and connected workflows (Zoho Flow-triggered rules).
+
+They are one toggle because function matching uses the automation data: a
+rule's action list is what ties a function to a module.
 
 **Reverse Analytics Audit** asks the opposite question: which columns exist in Analytics but have no matching CRM field? That surfaces orphans left behind by a renamed or deleted field, so it's where to start if your Analytics sync broke and you don't know why. It runs standalone and locks out the other sources while selected.
-
-Shown as "Soon" in the UI and not yet built: CRM Dashboards, CRM Lookup Fields, and a standalone function scan.
 
 ## How confident is each result?
 
@@ -38,7 +45,61 @@ Not every source can be equally certain, so the app never pretends otherwise. Th
 |---|---|---|
 | **Exact** | Analytics, workflow field updates, workflow rules, scoring rules, blueprints, connected workflows | Zoho's own dependency engine by `columnId`, or module **id** + field API name straight from the API |
 | **High** | CRM reports, webhooks | Report refs resolved through the report's own joins; webhook `${!Module.Field}` merge tags. Report references more than one join hop deep are labeled **unverified** rather than treated as certain |
-| **Heuristic** | CRM Deluge functions | Word-boundary regex on the field's API name, narrowed by inferring which module each Deluge variable belongs to, so a Contacts-scoped `First_Name` doesn't bleed into a Leads audit |
+| **Heuristic** | CRM Deluge functions | Deluge has no dependency API, so this is a text search over comment-stripped source. Custom names are searched loosely; standard names additionally need the module anchored in the function (below) |
+
+### How strict Deluge matching is, and why
+
+The goal is to find every occurrence of a field, so the default is to
+search loosely. The one thing that makes that unsafe is a generic API
+name, and generic names are almost entirely a standard-field problem:
+`Name`, `Owner`, `Email`, `Phone`. A custom field's API name is
+org-specific, so `GDrive_ID` can be searched for anywhere without dragging
+in prose.
+
+So the two are treated differently:
+
+- **Custom fields** are searched loosely, anywhere in any function.
+- **Standard fields** additionally require the module to be anchored in
+  the function. A CRM API call is where a module has to be named, so that
+  is the anchor: a `zoho.crm.*` call or an `invokeurl` REST path like
+  `/crm/v8/Accounts`.
+
+Either way an occurrence has to look like a name rather than prose. Deluge
+names a field with a complete quoted string, and that string is routinely
+held in a config variable before use:
+
+```
+CRM_GDrive_ID = "GDrive_ID";
+Update_Map.put(CRM_GDrive_ID, Folder_ID);
+```
+
+so the whole literal has to equal the API name. `"Name: "` and
+`"Folder Name"` are prose. Criteria clauses like `(Stage:equals:Closed Won)`
+and the `input.Stage` form count as names too, and a distinctive custom
+name counts as a bare identifier as well.
+
+Comments are stripped before matching, and matching is case-sensitive
+because Deluge field access is: a lowercase `get("name")` provably is not
+a reference to a field named `Name`.
+
+Why it matters: on a live org, the Invoices module's "Invoice Number"
+field has the API name `Name`. A bare text search reported 22 function
+hits, every one of them a comment, a log string, or a local variable, and
+marked 10 of the module's 29 fields "in use". The real answer was zero. A
+verdict full of irrelevant hits teaches you to ignore the verdict, which
+defeats the tool.
+
+A function can also be anchored by how automation wires it. A workflow
+rule's detail response lists the functions it invokes, which is an exact
+statement from CRM about which module a function serves, and it is the only
+thing that anchors a thin wrapper whose whole body is a call to a
+standalone function.
+
+The remaining gap is a standard field passed into a function as an
+argument, where the binding lives in CRM's workflow configuration rather
+than in the code or in any API response we can reach.
+`test/real-data.test.js` pins the behaviour against a real org of 420
+Deluge functions and 233 Analytics tables.
 
 Every source counts toward the verdict. There is deliberately no "informational" tier: a result you can't act on is noise, so sources that could only ever report a name coincidence were removed rather than shipped with a disclaimer.
 
@@ -46,13 +107,53 @@ Automation matching keys off module **id**, not API name, because different CRM 
 
 ## Verdicts
 
-- **`N` in use** — something depends on this field. The detail panel breaks the number down by source, each with a link out to the exact view, report, rule, or settings page so you can fix it before deleting.
-- **unused** — synced to Analytics, and Zoho's dependency engine reports nothing depending on it.
-- **not synced** / **not in Analytics** — no matching column exists at all, and nothing else references it. Also safe, and usually a dead field.
+- **`N` in use**: something depends on this field. The detail panel breaks the number down by source, each with a link out to the exact view, report, rule, or settings page so you can fix it before deleting.
+- **unused**: synced to Analytics, and Zoho's dependency engine reports nothing depending on it.
+- **not synced** / **not in Analytics**: no matching column exists at all, and nothing else references it. Also safe, and usually a dead field.
 
 ## Using it
 
-**1. Connect and scan.** Pick your data center and org, toggle the sources you want, then Scan. Analytics workspace and folder pickers appear only for the Reverse Analytics Audit, which is the one operation that needs the extra narrowing. Results cache in `localStorage`, so "Use cached scan" skips a re-scan next time.
+**1. Connect and scan.** Pick your data center and org, toggle the sources you want, then Scan.
+
+In a large org, hit **Check scan size** first. Listing what exists costs a
+few seconds and about a dozen API calls; reading the detail costs one
+metered call per Analytics table, per function and per rule, which is
+thousands of calls and minutes of waiting. So the plan lists first and
+shows what a scan would cost, broken down by Analytics folder and by CRM
+source, sorted by what each one costs, with a running total.
+
+Folders are the useful lever. A consolidated workspace mixes several apps,
+and for a CRM field audit most of those tables are noise. On our own
+testing org, unticking four Zoho Books folders took the run from about
+seven minutes to five, and the scan then read 141 tables instead of 269.
+
+Zoho meters Analytics metadata at 60 calls a minute, so a big scan is
+genuinely slow. The widget says how long up front, shows the time
+remaining as it goes, and hands the otter a coffee for runs over three
+minutes.
+
+The workspace picker is always available. Folders are chosen in the scan
+plan, where each one carries a table count and a time, rather than as a
+flat list of pills: a real org has dozens, and unlabelled pills are no
+help. The reverse audit keeps its own folder pills, narrowed to the CRM
+data folder, because it reads every column and unrelated apps are pure
+noise for it.
+
+Results also cache in `localStorage`, so **Use cached scan** skips a
+re-scan. The cache is keyed to the CRM org, since `localStorage` is scoped
+to `crm.zoho.com` rather than to the org.
+
+**Save the scan.** A big scan is minutes of metered calls, so it should not
+be something you repeat. **Save scan to file** writes the whole result as
+JSON, and **Load scan from file** reads it straight back, on any machine,
+without spending a single call. After a run that took more than about a
+minute and a half the widget offers to save it, since the browser cache is
+convenient but fragile: it gets cleared, it is per browser, and a large org
+can exceed its size limit.
+
+A loaded file is checked before anything reads it, and a scan taken in a
+different org loads with a standing warning that says so, because verdicts
+from the wrong org would look entirely plausible.
 
 **2. Fields.** Pick a module. Click any field to check it on demand, or **Check all fields** to badge the whole module at once. Filter chips (In use / Unused / Not in Analytics / Unchecked) carry live counts, and the search box filters by label or API name.
 
@@ -62,7 +163,7 @@ Three themes (dark by default, light, and zen) via the header dropdown, persiste
 
 ## One-time org setup
 
-**1. Connections** — Setup > Developer Space > Connections > Create Connection, service **Zoho OAuth**. Authorize each after creating it. Custom link names are fine, just enter them in the widget's settings panel.
+**1. Connections**. Setup > Developer Space > Connections > Create Connection, service **Zoho OAuth**. Authorize each after creating it. Custom link names are fine, just enter them in the widget's settings panel.
 
 | Link name | Scope | Needed for |
 |---|---|---|
@@ -73,7 +174,7 @@ Two connections, that's the whole setup. `ZohoCRM.settings.ALL` is known working
 
 Click any scope chip in the widget to copy it.
 
-**2. Widget** — Setup > Developer Space > Widgets > Create. Type **Web Tab**, hosting **External** pointing at `https://127.0.0.1:5000/app/widget.html` for development, or **Zoho** once packaged.
+**2. Widget**. Setup > Developer Space > Widgets > Create. Type **Web Tab**, hosting **External** pointing at `https://127.0.0.1:5000/app/widget.html` for development, or **Zoho** once packaged.
 
 **3.** Add the widget as a web tab so it appears in the CRM tab bar.
 
@@ -88,7 +189,38 @@ zet run
 
 Open `https://127.0.0.1:5000` once and accept the self-signed certificate, then open the web tab inside CRM.
 
-To ship: `zet validate`, then `zet pack`, and upload `dist/FieldCheck.zip` with Hosting set to Zoho. CRM serves the zip's `app/` folder as the web root, so set the Index Page to `/widget.html`, **not** `/app/widget.html`. Every change needs a re-pack and re-upload, so use the external URL during development.
+To ship: `zet validate`, then `zet pack`, and upload the zip it writes into `dist/` with Hosting set to Zoho. CRM serves the zip's `app/` folder as the web root, so set the Index Page to `/widget.html`, **not** `/app/widget.html`. Every change needs a re-pack and re-upload, so use the external URL during development.
+
+## Tests
+
+The widget has no build step and no browser test runner, so the logic
+files are exercised in Node against a small DOM and SDK shim.
+
+```
+npm test
+```
+
+Every suite below is a plain Node script with no dependencies.
+
+| Suite | What it holds down |
+|---|---|
+| `boot.test.js` | Loads every script in the exact order `widget.html` does, runs the `PageLoad` handler, and checks every entry the registries declare resolves to something real. Catches load-order and missing-identifier mistakes. |
+| `theme-contrast.test.js` | Parses the stylesheet and asserts that any button hover which recolours text settles its own background, in all three themes. Guards a bug that shipped once, where link text went mint on mint. |
+| `transport.test.js` | The shapes `CONNECTION.invoke` returns: a normal JSON body, a 204 empty list, an error body, a missing response. |
+| `ratelimit.test.js` | The shared limiter, on a simulated clock: 269 calls stay under 60 a minute, a 6045 rejection is retried rather than lost, a non-rate-limit failure is not, and the time estimates. |
+| `cache-org.test.js` | A cached scan is only offered when it belongs to the org on screen, plus the folder gating the scan plan relies on. |
+| `scan-file.test.js` | Saving and loading a scan: a lossless round trip, every way a bad file is refused, the real `onchange` handler driven with a stubbed reader, and when saving is offered. |
+| `paging.test.js` | The shared paginator: multi-page collection, stopping on `more_records`, both query-separator forms, a missing response key. |
+| `deluge.test.js` | Deluge matching in detail, including a real standalone function from a live org kept verbatim as a fixture. |
+| `real-data.test.js` | Matching against a committed real scan: 420 functions, 233 tables. Asserts properties rather than expected names, so refreshing the fixture does not invalidate it. No hit outside the set of functions that really mention the name; anchoring only ever removes hits; a full sweep stays fast. |
+| `verdicts.test.js` | A synthetic org where one field is used by seven sources, one is synced but unreferenced, and one is absent from Analytics, then the hit counts, categories, chips, detail sections and CSV rows. |
+
+`test/fixtures/scan-cache.json` is a real scan of our shared testing org,
+committed so the suites run for anyone who clones the repo. Refresh it by
+running a scan and using **Save scan to file**.
+
+These cover the analysis layer and the transport rules, not the live API
+calls themselves, which need a real org.
 
 ## Architecture
 
@@ -106,15 +238,24 @@ app/
   css/styles.css   all styling: light base, dark and zen themes, loader
   js/
     state.js         shared state object S + scan cache key
-    helpers.js       DOM/URL/text utils, Connection transport, runQueue
+    helpers.js       DOM/URL/text utils, Connection transport, rate limits
+    sources.js       the SCANS + SOURCES registry every screen derives from
     loader.js        full-screen loader (min-hold + boot lines) and mini loader
     settings.js      persisted settings, theme picker, setup-card toggles
-    scan.js          the scan pipeline for every source, cache, finishScan
+    scan.js          scan pipeline, scan plan, cache, save and load, summary
     fields.js        field loading, column matching, hit matchers, verdict math
     ui.js            icons, chips, filters, field list, detail panel, CSV export
     reverse-audit.js the standalone Analytics -> CRM audit
     main.js          boot wiring (PageLoad, SDK init, failsafe)
 ```
+
+`sources.js` is the spine. Each scan is declared once and each kind of
+match is declared once, and the field chips, verdict wording, detail
+sections, CSV export, scan summary and cache all derive themselves from
+those two tables. Adding a source means adding two entries and a matcher,
+with no other file to remember. Analytics is deliberately outside the
+registry: it is the only source answering through Zoho's dependency engine
+rather than a name match, so its results carry a different shape.
 
 The scan only fetches deep detail for Analytics **Tables** (whose `columns` carry the `columnId`s) and **Query Tables** (their SQL). Every other view type is reached through the dependents API instead, which keeps the scan light.
 
@@ -128,8 +269,42 @@ Key API references:
 - Custom headers such as `ZANALYTICS-ORGID` pass through `CONNECTION.invoke` correctly.
 - Analytics dependent views inside dashboards ("KPI widgets") come back with a bare numeric `viewName`; the UI collapses them into a count rather than showing meaningless ID rows.
 - CRM reports are filtered by recency **before** fetching detail: not run in the past year, or never run and created over 6 months ago, means skipped. A year of unused reports would otherwise be hundreds of detail calls.
-- List endpoints page at 200 per page (`info.more_records`). Automations paginate; the functions list call does not yet, so an org with 200+ functions would truncate.
+- List endpoints page at 200 per page (`info.more_records`). Every list call goes through one shared paginator, so no source truncates on a large org.
+- Zoho Analytics meters metadata calls at **60 a minute** and rejects the rest with error 6045. Every call is spaced to stay under that. Before this, a 269-table org read 49 tables and silently discarded the other 216, so verdicts rested on a fifth of the data. Anything still unreadable is now counted and reported rather than dropped.
+- The scan cache is keyed to the CRM org. `localStorage` is scoped to `crm.zoho.com`, not to the org, so without that key switching orgs offers you the previous client's scan.
 - Blueprint per-transition mandatory fields aren't included: that API needs transition IDs with no documented way to enumerate them.
+
+## Known limits
+
+Stated plainly, because a verdict you cannot calibrate is worth less than
+one you can.
+
+- **Deluge matching is a text search.** Zoho publishes no dependency API
+  for Deluge, so a field name inside a prose string in an anchored function
+  can still be reported. The rules above cut this hard, but they cannot
+  reach zero.
+- **A standard field passed in as a function argument is missed.** The
+  binding between a CRM field and a function parameter is configured on the
+  workflow action, and is not exposed by the functions list or the rule
+  detail. Custom fields are unaffected, since they are matched loosely.
+- **Blueprint per-transition fields are not included.** That API needs
+  transition IDs, and there is no documented way to enumerate them. The
+  single governing field per blueprint is covered.
+- **Report matching covers columns and filters only.** Group by, sort by,
+  aggregate functions and territory filters are deliberately out of scope,
+  as is `relational_criteria` on workflow rules.
+- **Report references more than one join hop deep are labelled
+  unverified** rather than resolved, which would need an API call per
+  intermediate module.
+- **Webhook merge tags name their module as text**, so they are the one
+  automation source matched on API name rather than module id, and cannot
+  be corrected for the Deals/Potentials naming quirk.
+- **A large scan is slow, and that is Zoho's limit, not ours.** Analytics
+  meters metadata at 60 calls a minute. The plan tells you the cost before
+  you commit, and saving the result to a file means paying it once.
+- **The reverse audit is informational.** It reports Analytics columns with
+  no matching CRM field; it does not check whether those columns are still
+  used anywhere.
 
 ## Competition deliverables (due Aug 24)
 

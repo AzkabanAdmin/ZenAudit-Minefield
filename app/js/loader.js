@@ -1,11 +1,18 @@
 "use strict";
 
-// Full-screen loader overlay (boot + scans) and the backdrop-free mini loader
-// used for in-page work like Check All.
+/* **********************************************************************
+ *   Loaders
+ ********************************************************************** */
 
-// Full overlay stays up at least MIN_LOADER_MS so it never just flickers.
-// The boot loader is visible from the markup itself, so the clock starts
-// at script evaluation, not at the first showLoader() call.
+/*
+ *   A full-screen overlay for boot and scans, plus a backdrop-free mini
+ *   loader for in-page work like Check All.
+ *
+ *   The overlay holds for at least MIN_LOADER_MS so it never just
+ *   flickers. The boot loader is already visible in the markup, so the
+ *   clock starts at script evaluation rather than the first showLoader().
+ */
+
 var MIN_LOADER_MS = 2200, loaderShownAt = Date.now(), loaderHideTimer = null;
 function showLoader(status, frac) {
   var el = $("loader");
@@ -31,7 +38,7 @@ function hideLoader() {
   }, wait);
 }
 
-// Boot gets a witty line; real scans keep factual progress text
+//==========// boot gets a playful line; real scans keep factual progress text
 var BOOT_LINES = [
   "Achieving field zen…",
   "Meditating on your metadata…",

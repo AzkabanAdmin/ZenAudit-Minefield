@@ -1,22 +1,31 @@
 "use strict";
 
-// DOM, URL, and text utilities plus the API transport layer.
+/* **********************************************************************
+ *   DOM_And_Text_Utilities
+ ********************************************************************** */
 
 function $(id) { return document.getElementById(id); }
 function apiBase() { return $("dc").value; }
 function webBase() { return apiBase().replace("analyticsapi.", "analytics."); }
 function crmApiBase() { return apiBase().replace("https://analyticsapi.zoho", "https://www.zohoapis"); }
 function crmWebBase() { return apiBase().replace("analyticsapi.zoho", "crm.zoho"); }
-// Workspace-scoped URL opens the editable view, unlike /open-view/
+/* **********************************************************************
+ *   Deep_Links
+ ********************************************************************** */
+
+/*
+ *   Confirmed against a live org. Without a resolved zgid, each of these
+ *   falls back to the generic list page rather than guessing whether an
+ *   org-less path still accepts a record id.
+ */
+
+//==========// the workspace-scoped URL opens the editable view, unlike /open-view/
 function viewLink(wsId, viewId) { return webBase() + "/workspace/" + wsId + "/view/" + viewId; }
 function functionsPageUrl() {
   return S.crmZgid
     ? crmWebBase() + "/crm/org" + S.crmZgid + "/settings/functions/myFunctions"
     : crmWebBase() + "/crm/settings/functions";
 }
-// Deep links confirmed against a live org; without zgid resolved yet, fall
-// back to the generic list page rather than guess whether an org-less path
-// still accepts the record ID, same caution as functionsPageUrl's fallback.
 function reportPageUrl(reportId) {
   return S.crmZgid
     ? crmWebBase() + "/crm/org" + S.crmZgid + "/tab/Reports/" + reportId
@@ -42,35 +51,149 @@ function blueprintPageUrl(blueprintId, moduleApiName) {
     ? crmWebBase() + "/crm/org" + S.crmZgid + "/settings/blueprint/" + blueprintId + "?module=" + moduleApiName
     : crmWebBase() + "/crm/settings/blueprint";
 }
+/* **********************************************************************
+ *   Text_Helpers
+ ********************************************************************** */
+
 function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
-// "Account Name", "Account_Name" and "account_name" all normalize to account_name
+//==========// "Account Name", "Account_Name" and "account_name" all normalize alike
 function norm(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, ""); }
 function showError(msg) { var e = $("setup-error"); e.classList.remove("hidden"); e.textContent = msg; }
 function clearError() { $("setup-error").classList.add("hidden"); }
 
-// All external calls go through a named Connection so OAuth and CORS are
-// handled server-side by CRM. This is the portability linchpin.
+/* **********************************************************************
+ *   API_Transport
+ ********************************************************************** */
+
+/*
+ *   Every external call goes through a named CRM Connection, so OAuth and
+ *   CORS are handled server-side by CRM. That is what keeps the widget
+ *   portable: an org configures two Connections once and nothing else.
+ */
+
+//==========// The Connection wrapper reports its own outcome separately from the
+//==========// wrapped API's body, so an empty body can still be a successful call.
+function invokeSucceeded(resp) {
+  if (!resp) return false;
+  if (resp.code && String(resp.code).toUpperCase() !== "SUCCESS") return false;
+  if (resp.status && String(resp.status).toLowerCase() !== "success") return false;
+  return !!(resp.code || resp.status);
+}
+
+//==========// Zoho signals a rejected call inside the body too, either as an
+//==========// explicit failure status or as an error code paired with a message.
+function isErrorBody(body) {
+  if (!body || typeof body !== "object") return false;
+  if (body.status === "failure") return true;
+  return typeof body.code === "string" && body.code.toUpperCase() !== "SUCCESS";
+}
+
 function invokeConn(connName, url, headers) {
   var req = { url: url, method: "GET", param_type: 1, parameters: {}, headers: headers || {} };
   return ZOHO.CRM.CONNECTION.invoke(connName, req).then(function (resp) {
     var body = resp && resp.details && resp.details.statusMessage;
+    //==========// A list with no rows comes back as 204 No Content, which arrives
+    //==========// here as an empty statusMessage. That is a real empty result, not
+    //==========// a failure, so it must not be reported as one.
+    if ((body === "" || body == null) && invokeSucceeded(resp)) return {};
     if (typeof body === "string") { try { body = JSON.parse(body); } catch (e) { /* raw text, e.g. function code */ } }
-    if (!body || body.status === "failure") {
+    if (!body || isErrorBody(body)) {
       throw new Error("API error at " + url + "\n" + JSON.stringify(body || resp).slice(0, 500));
     }
     return body;
   });
 }
+/* **********************************************************************
+ *   Rate_Limits
+ *
+ *   Zoho meters both services, and Analytics metadata is the tight one at
+ *   60 calls a minute, rejecting the rest with error 6045. Reading
+ *   structure costs one call per table, which is hundreds in a real org.
+ *
+ *   Every call is spaced to stay under the cap rather than discovering it
+ *   the hard way. Before this, a large org silently lost most of its
+ *   tables: the first minute of calls landed and every later one was
+ *   refused, so a "safe to delete" verdict rested on a fraction of the
+ *   data with nothing on screen to say so.
+ *
+ *   LIMITS holds the floor between calls per service. Analytics sits just
+ *   over a second to keep clear of 60 a minute. CRM's floor is well below
+ *   its own ceiling and below normal round-trip time, so it costs nothing
+ *   and guards against a faster connection outrunning the limit.
+ ********************************************************************** */
+
+/*
+ *   minIntervalMs is the floor the limiter enforces. perCallMs is what a
+ *   call actually costs in practice and is only used for estimates: for
+ *   Analytics the throttle dominates, but for CRM the round trip does, so
+ *   estimating from the floor alone would promise half the real time.
+ *   Both perCallMs figures come from timing real scans.
+ */
+var LIMITS = {
+  analytics: { minIntervalMs: 1100, perCallMs: 1150, nextAt: 0, retryWaitMs: 45000, hits: 0 },
+  crm: { minIntervalMs: 120, perCallMs: 250, nextAt: 0, retryWaitMs: 20000, hits: 0 }
+};
+
+function wait(ms) {
+  return new Promise(function (resolve) { setTimeout(resolve, ms); });
+}
+
+//==========// reserve this call's slot up front, so queued callers keep their order
+function reserveSlot(limit) {
+  var now = Date.now();
+  var delay = Math.max(0, limit.nextAt - now);
+  limit.nextAt = Math.max(now, limit.nextAt) + limit.minIntervalMs;
+  return delay ? wait(delay) : Promise.resolve();
+}
+
+function isRateLimited(err) {
+  var s = String((err && err.message) || err);
+  return s.indexOf("6045") >= 0 || /rate limit|too many request/i.test(s);
+}
+
+//==========// spacing should prevent a rejection, so one retry is enough; if it
+//==========// still fails the caller hears about it rather than losing the row
+function limitedGet(limit, connName, url, headers) {
+  return reserveSlot(limit)
+    .then(function () { return invokeConn(connName, url, headers); })
+    .catch(function (err) {
+      if (!isRateLimited(err)) throw err;
+      limit.hits++;
+      return wait(limit.retryWaitMs)
+        .then(function () { return reserveSlot(limit); })
+        .then(function () { return invokeConn(connName, url, headers); });
+    });
+}
+
+//==========// how long a run of metered calls will take, in seconds
+function estimateSeconds(callCount, limit) {
+  return Math.round((callCount * limit.perCallMs) / 1000);
+}
+
+//==========// the same in whole minutes, rounded up, for coarse warnings
+function estimateMinutes(callCount, limit) {
+  return Math.ceil((callCount * limit.perCallMs) / 60000);
+}
+
+//==========// "45 seconds", "about 6 minutes"
+function describeDuration(secs) {
+  if (secs < 20) return "a few seconds";
+  if (secs < 90) return secs + " seconds";
+  return "about " + Math.round(secs / 60) + " minutes";
+}
+
 function analyticsGet(path, config) {
   var url = apiBase() + "/restapi/v2" + path;
   if (config) url += (path.indexOf("?") < 0 ? "?" : "&") + "CONFIG=" + encodeURIComponent(JSON.stringify(config));
-  return invokeConn($("conn-analytics").value.trim(), url, S.orgId ? { "ZANALYTICS-ORGID": S.orgId } : {});
+  return limitedGet(LIMITS.analytics, $("conn-analytics").value.trim(), url,
+    S.orgId ? { "ZANALYTICS-ORGID": S.orgId } : {});
 }
+
 function crmGet(path) {
-  return invokeConn($("conn-crm").value.trim(), crmApiBase() + "/crm/v8" + path);
+  return limitedGet(LIMITS.crm, $("conn-crm").value.trim(), crmApiBase() + "/crm/v8" + path, {});
 }
-// Run fn over items one at a time so we stay friendly with API limits
+//==========// run fn over items one at a time, to stay inside API rate limits
 function runQueue(items, fn, onStep) {
   return items.reduce(function (p, item, i) {
     return p.then(function () {

@@ -1,11 +1,15 @@
 "use strict";
 
-// Persisted settings (connection names, data center, theme), theme toggle,
-// and small setup-card UI toggles.
-//
-// Scan-source toggles are deliberately NOT persisted: which sources you want
-// is a per-audit decision, not a preference, so every source starts from the
-// checkbox defaults in widget.html on each load.
+/* **********************************************************************
+ *   Persisted_Settings
+ ********************************************************************** */
+
+/*
+ *   Connection names, data center and theme persist. Scan-source toggles
+ *   deliberately do not: which sources you want is a per-audit decision,
+ *   not a preference, so every source starts from the checkbox defaults in
+ *   widget.html on each load.
+ */
 
 var SETTINGS_KEY = "fieldcheck.settings.v1";
 function saveSettings() {
@@ -27,16 +31,21 @@ function restoreSettings() {
     applyTheme(THEME_META.hasOwnProperty(s.theme) ? s.theme : "dark");
   } catch (e) { /* ignore bad cache */ }
 }
-// Changing the Analytics connection or data center re-resolves orgs and
-// workspaces automatically (loadOrgs is defined in scan.js, loaded later).
+//==========// changing the connection or data center re-resolves orgs and workspaces
 $("conn-analytics").onchange = function () { saveSettings(); if (S.sdkReady) loadOrgs(); };
 $("conn-crm").onchange = saveSettings;
 $("dc").onchange = function () { saveSettings(); if (S.sdkReady) loadOrgs(); };
 
-// Three themes (dark, light, zen) picked from a dropdown menu rather than
-// cycled through. applyTheme() just sets classes/icons for a given theme;
-// setTheme() is what the menu calls, and wraps that in a circular reveal
-// that grows from wherever the user clicked.
+/* **********************************************************************
+ *   Themes
+ ********************************************************************** */
+
+/*
+ *   Three themes picked from a dropdown rather than cycled through.
+ *   applyTheme sets the classes and icons; setTheme is what the menu
+ *   calls, wrapping that in a circular reveal from the click point.
+ */
+
 var THEME = "dark";
 var THEME_META = {
   dark: { icon: "&#127769;", label: "Dark" },        // moon
@@ -50,16 +59,17 @@ function applyTheme(t) {
   $("theme-toggle-icon").innerHTML = THEME_META[t].icon;
   $("theme-toggle").title = "Theme: " + THEME_META[t].label;
   document.querySelectorAll(".theme-option").forEach(function (opt) {
-    opt.classList.toggle("active", opt.dataset.theme === t);
+    var on = opt.dataset.theme === t;
+    opt.classList.toggle("active", on);
+    opt.setAttribute("aria-checked", on ? "true" : "false");
   });
 }
 function prefersReducedMotion() {
   return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
-// Switching themes grows a circle from the clicked option (or the toggle
-// button itself, e.g. if picked via keyboard) out to cover the page. Falls
-// back to an instant switch on browsers without the View Transitions API,
-// or when the user has asked for reduced motion.
+//==========// Grows a circle from the clicked option out to cover the page. Falls
+//==========// back to an instant switch without the View Transitions API, or when
+//==========// the user has asked for reduced motion.
 function setTheme(t, originEl) {
   var rect = (originEl || $("theme-toggle")).getBoundingClientRect();
   closeThemeMenu();
@@ -97,20 +107,23 @@ document.addEventListener("click", function (e) {
 document.addEventListener("keydown", function (e) {
   if (e.key === "Escape") closeThemeMenu();
 });
+/* **********************************************************************
+ *   Setup_Card
+ ********************************************************************** */
+
 $("btn-toggle-setup").onclick = function () {
   var card = $("setup-card");
   card.classList.toggle("collapsed");
   this.textContent = card.classList.contains("collapsed") ? "Settings" : "Hide settings";
 };
-// Only ever expands (unlike the Settings link above, which toggles both
-// ways); its own visibility is CSS-driven off setup-card's collapsed state,
-// so it only shows up while looking at results.
+//==========// Only ever expands, unlike the Settings link above. Its own visibility
+//==========// is CSS-driven off the collapsed state, so it shows only over results.
 $("btn-back-to-menu").onclick = function () {
   $("setup-card").classList.remove("collapsed");
   $("btn-toggle-setup").textContent = "Hide settings";
 };
 $("btn-guide").onclick = function () { $("guide").classList.toggle("hidden"); };
-// Click any scope chip to copy it for the connection form
+//==========// click any scope chip to copy it into the connection form
 document.addEventListener("click", function (e) {
   var el = e.target;
   if (el.tagName !== "CODE" || !(el.closest(".scopes") || el.closest(".guide"))) return;

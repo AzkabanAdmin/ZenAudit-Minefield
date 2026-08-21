@@ -1,4 +1,9 @@
-/* ============ Zenatta Field Check — base / light theme ============ */
+/* **********************************************************************
+ *   Base_And_Light_Theme
+ *
+ *   The light palette is the base every other theme overrides. Dark is
+ *   the shipped default, applied as a body class.
+ ********************************************************************** */
 /* Brand: Zenatta forest green #044B30, action green #0A5E3C (hover #0F8656),
    mint #02D58E, gradient #02D58E→#01784E. Raleway headings, Ubuntu body. */
 * { box-sizing: border-box; }
@@ -18,7 +23,10 @@ body {
 }
 h1, h2, h3, .step, button { font-family: var(--font-display); }
 
-/* header — forest green brand band in BOTH themes */
+/* **********************************************************************
+ *   Header
+ ********************************************************************** */
+/* the brand band stays forest green in every theme */
 header {
   background: var(--zen-green); border-bottom: 1px solid rgba(2, 213, 142, .25);
   padding: 14px 22px; display: flex; align-items: center; gap: 12px; color: #fff;
@@ -26,6 +34,8 @@ header {
 header h1 { font-size: 18px; margin: 0; font-weight: 700; color: #fff; }
 header .tag { color: rgba(255, 255, 255, .78); font-size: 13px; }
 #logo { display: block; flex: 0 0 auto; height: 28px; width: auto; filter: brightness(0) invert(1); }
+.header-rule { flex: 0 0 auto; width: 1px; height: 26px; background: rgba(255, 255, 255, .25); }
+#sdk-tag { margin-left: auto; }
 #sdk-tag {
   background: var(--grad-brand); color: #04140d !important; font-weight: 700;
   border-radius: 999px; padding: 4px 13px; font-size: 12.5px;
@@ -97,7 +107,10 @@ button.secondary:hover:not(:disabled) { background: var(--zen-green-btn); color:
 #setup-card h2 { display: flex; align-items: center; margin-bottom: 20px; }
 #setup-card h2 .link { margin-left: auto; text-decoration: none; font-weight: 700; }
 
-/* three-column setup layout: connections / scan sources / run */
+/* **********************************************************************
+ *   Setup_Card
+ ********************************************************************** */
+/* three columns: connections / scan sources / run */
 .setup-cols { display: flex; gap: 30px; align-items: stretch; }
 .setup-col { min-width: 0; }
 .col-label {
@@ -140,12 +153,6 @@ button.secondary:hover:not(:disabled) { background: var(--zen-green-btn); color:
 }
 .src-tile input:checked ~ .switch { background: var(--zen-green-btn); }
 .src-tile input:checked ~ .switch::after { left: 17px; }
-.src-tile.soon { cursor: default; opacity: .8; }
-.soon-badge {
-  flex: none; font-family: var(--font-display); font-size: 10px; font-weight: 700;
-  letter-spacing: .1em; text-transform: uppercase; padding: 4px 10px; border-radius: 999px;
-  background: #DDE0E1; color: #6b7671;
-}
 .src-divider { border: none; border-top: 1px solid #E8ECEA; margin: 14px 0; }
 .src-grid-audit { grid-template-columns: 1fr; margin-bottom: 12px; }
 .audit-tile.on { background: #fff3d6; border-color: #c98a00; box-shadow: 0 2px 10px rgba(201, 138, 0, .15); }
@@ -155,6 +162,21 @@ button.secondary:hover:not(:disabled) { background: var(--zen-green-btn); color:
 .col-run { flex: 0 0 280px; display: flex; flex-direction: column; gap: 10px; }
 .col-run #btn-scan { width: 100%; padding: 11px 16px; font-size: 13.5px; }
 .col-run #btn-cache { width: 100%; }
+.save-nudge {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin: 14px 0 0; padding: 12px 16px; font-size: 13px;
+  border: 1px solid var(--zen-green-btn); border-radius: 10px; background: #E6F4EE;
+}
+.save-nudge.hidden { display: none; }
+.save-nudge .nudge-icon { font-size: 16px; }
+.save-nudge .nudge-text { flex: 1 1 260px; }
+.save-nudge button { padding: 7px 14px; font-size: 12.5px; }
+.save-nudge .link { padding: 4px 2px; }
+body.dark .save-nudge { background: rgba(2, 213, 142, .08); border-color: rgba(2, 213, 142, .45); }
+body.zen .save-nudge { background: #E3ECE0; border-color: #4B7A48; }
+
+.file-row { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 2px; }
+.file-row .link { padding-left: 0; font-size: 11.5px; }
 .col-run .progress { margin-top: auto; }
 #scan-progress .scan-stats { display: block; margin-top: 3px; }
 #scan-progress.done { position: relative; padding-left: 16px; }
@@ -177,9 +199,13 @@ button.secondary:hover:not(:disabled) { background: var(--zen-green-btn); color:
 .cols { display: flex; gap: 16px; align-items: flex-start; }
 .panel-fields { flex: 0 0 380px; max-width: 380px; }
 .panel-detail { flex: 1 1 auto; min-width: 0; }
+#field-search { width: 100%; margin-top: 8px; }
 #field-list { max-height: 560px; overflow: auto; margin-top: 12px; }
 
-/* field rows — separated cards, not merged lines */
+/* **********************************************************************
+ *   Field_Rows_And_Chips
+ ********************************************************************** */
+/* separated cards rather than merged lines */
 .field-row {
   display: flex; align-items: center; justify-content: space-between; gap: 9px;
   padding: 11px 14px; margin-bottom: 8px; cursor: pointer;
@@ -187,6 +213,8 @@ button.secondary:hover:not(:disabled) { background: var(--zen-green-btn); color:
   transition: box-shadow .15s, border-color .15s;
 }
 .field-row:hover { box-shadow: 0 2px 8px rgba(4, 75, 48, .10); }
+.field-row:focus-visible { outline: 2px solid var(--zen-green-bright); outline-offset: 2px; }
+button:focus-visible, .src-tile:focus-within { outline: 2px solid var(--zen-green-bright); outline-offset: 2px; }
 .field-row.active { background: #E6F4EE; border-color: var(--zen-green-btn); }
 .field-row .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .field-row .fname small { color: #6b7671; display: block; font-size: 12px; font-weight: 400; }
@@ -208,12 +236,12 @@ button.secondary:hover:not(:disabled) { background: var(--zen-green-btn); color:
 .chip.src-cwtrig { background: #FDE68A; color: #92400e; }
 .chip.src-cwcrit { background: #C7D2FE; color: #3730a3; }
 .chip.clear { background: #DFF7EC; color: #01784E; }
-.chip.used { background: #fbdcdc; color: #b3261e; }
-.chip.review { background: #fff3d6; color: #9a6b00; }
 .chip.na { background: #F1F2F2; color: #6b7671; }
 .chip.unchecked { background: #F1F2F2; color: #7a8580; }
 
-/* verdict — brand banner */
+/* **********************************************************************
+ *   Verdict_Banner
+ ********************************************************************** */
 .verdict { padding: 18px 20px; border-radius: 14px; margin-bottom: 14px; font-size: 15px; }
 .verdict.used { display: flex; align-items: center; flex-wrap: wrap; gap: 14px 24px; padding: 20px 24px; }
 .verdict .vnum {
@@ -239,7 +267,9 @@ button.secondary:hover:not(:disabled) { background: var(--zen-green-btn); color:
 .vb-link:hover { background: rgba(2, 213, 142, .22) !important; }
 .vb-link:active { transform: scale(.97); }
 
-/* usage rows */
+/* **********************************************************************
+ *   Usage_Rows
+ ********************************************************************** */
 .usage {
   border: 1px solid #DDE0E1; border-radius: 12px; padding: 12px 14px; margin-bottom: 10px;
   display: flex; justify-content: space-between; gap: 12px; align-items: flex-start;
@@ -270,11 +300,19 @@ h3.usage-group {
 }
 body.dark .usage-group .gcount { background: var(--zen-mint); color: #04140d; }
 .hidden { display: none; }
-/* collapsed setup card -> slim one-line status bar */
+/* **********************************************************************
+ *   Collapsed_Setup_Card
+ *
+ *   Collapsing turns the whole setup card into a slim one-line status
+ *   bar, which is what gives the results view its full width.
+ ********************************************************************** */
 #setup-card.collapsed { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; padding: 10px 18px; }
 #setup-card.collapsed .setup-cols, #setup-card.collapsed .col-run { display: contents; }
 #setup-card.collapsed .col-connections, #setup-card.collapsed .col-sources,
 #setup-card.collapsed .col-run .col-label, #setup-card.collapsed #btn-cache,
+#setup-card.collapsed #btn-plan,
+#setup-card.collapsed .file-row,
+#setup-card.collapsed .plan,
 #setup-card.collapsed .guide { display: none; }
 #setup-card.collapsed h2 { order: 2; margin: 0; font-size: 0; }
 #setup-card.collapsed h2 .step { display: none; }
@@ -317,6 +355,45 @@ body.dark .usage-group .gcount { background: var(--zen-mint); color: #04140d; }
   font-size: 11.5px; font-family: Consolas, Menlo, monospace; cursor: pointer; white-space: nowrap;
 }
 .scopes code:hover, .guide code:hover { border-color: var(--zen-green-bright); }
+/* **********************************************************************
+ *   Scan_Plan
+ *
+ *   A cost breakdown, so the columns have to line up: control, what it is,
+ *   how much of it, how long it takes.
+ ********************************************************************** */
+
+.plan {
+  margin-top: 18px; padding: 16px 18px; border: 1px solid #E8ECEA; border-radius: 10px;
+  background: #F6F8F7; font-size: 13px;
+}
+.plan-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+.plan-head b { font-family: var(--font-display); font-size: 14px; }
+.plan-total { margin-left: auto; font-weight: 700; color: var(--zen-green-btn); }
+.plan-group {
+  margin: 14px 0 6px; font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: .09em; text-transform: uppercase; color: #6b7671;
+}
+.plan-row {
+  display: grid; grid-template-columns: 22px 1fr auto 110px; align-items: center; gap: 10px;
+  padding: 6px 0; border-top: 1px solid #E8ECEA;
+}
+.plan-row:first-of-type { border-top: none; }
+.plan-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-label small { color: #6b7671; margin-left: 6px; }
+.plan-count { color: #6b7671; white-space: nowrap; }
+.plan-time { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.plan-fixed { color: #9fb3aa; text-align: center; }
+.plan-check input { margin: 0; }
+
+body.dark .plan { background: #0b1310; border-color: #1d2b24; }
+body.dark .plan-row { border-color: #1d2b24; }
+body.dark .plan-group, body.dark .plan-count, body.dark .plan-label small { color: #9fb4a9; }
+body.dark .plan-total { color: var(--zen-mint); }
+
+body.zen .plan { background: #F5F0E3; border-color: #E6DEC9; }
+body.zen .plan-row { border-color: #EDE6D4; }
+body.zen .plan-group, body.zen .plan-count, body.zen .plan-label small { color: #6E6455; }
+
 .guide {
   border: 1px dashed #B9BCBE; border-radius: 12px; padding: 14px 16px;
   margin-top: 16px; font-size: 13px; color: #444; line-height: 1.7;
@@ -331,7 +408,11 @@ body.dark .usage-group .gcount { background: var(--zen-mint); color: #04140d; }
 .ws-pill.on { background: #E6F4EE; border-color: var(--zen-green-btn); color: var(--zen-green-btn); font-weight: 600; }
 .ws-pill.on::before { content: "\2713\00a0"; }
 
-/* ============ dark theme (default) ============ */
+/* **********************************************************************
+ *   Dark_Theme
+ *
+ *   The shipped default.
+ ********************************************************************** */
 body.dark { background: #0b1310; color: #e8efeb; scrollbar-color: #24352c transparent; }
 body.dark .card { background: #0f1a15; border-color: #1d2b24; box-shadow: 0 6px 24px rgba(0, 0, 0, .35); }
 body.dark label { color: #9fb4a9; }
@@ -343,7 +424,11 @@ body.dark button { background: var(--zen-mint); color: #04140d; }
 body.dark button:hover:not(:disabled) { background: var(--zen-mint-soft); box-shadow: 0 2px 12px rgba(2, 213, 142, .3); }
 body.dark button:disabled { background: #2e4237; color: #7a8d83; }
 body.dark button.link { background: none; color: var(--zen-mint); }
-body.dark button.link:hover:not(:disabled) { color: var(--zen-mint-soft); }
+/* a link button must restate background and shadow on hover: without them the
+   generic button:hover paints a filled pill, and mint-on-mint is invisible */
+body.dark button.link:hover:not(:disabled) {
+  background: none; box-shadow: none; color: var(--zen-mint-soft);
+}
 body.dark button.secondary {
   background: rgba(2, 213, 142, .08); color: var(--zen-mint); border: 1.5px solid rgba(2, 213, 142, .45);
 }
@@ -384,15 +469,11 @@ body.dark .audit-tile.on {
 body.dark .audit-tile.on .src-icon { background: #fbbf24; color: #04140d; }
 body.dark .audit-tile input:checked ~ .switch { background: #fbbf24; }
 body.dark .audit-tile input:checked ~ .switch::after { background: #04140d; box-shadow: none; }
-body.dark .src-tile.soon { opacity: .65; }
-body.dark .soon-badge { background: #24352c; color: #9fb4a9; }
 body.dark .field-row { background: #0b1310; border-color: #1d2b24; }
 body.dark .field-row:hover { border-color: #2e4237; box-shadow: none; }
 body.dark .field-row.active { background: rgba(2, 213, 142, .08); border-color: rgba(2, 213, 142, .45); }
 body.dark .field-row .fname small { color: #9fb4a9; }
 body.dark .chip.clear { background: rgba(2, 213, 142, .1); color: var(--zen-mint); }
-body.dark .chip.used { background: rgba(248, 113, 113, .15); color: #f87171; }
-body.dark .chip.review { background: rgba(251, 191, 36, .15); color: #fbbf24; }
 body.dark .chip.na, body.dark .chip.unchecked { background: rgba(255, 255, 255, .05); color: #9fb4a9; }
 body.dark .chip.src-an { background: rgba(2, 213, 142, .14); color: #8df0c8; }
 body.dark .chip.src-fn { background: rgba(15, 134, 86, .22); color: #a9e6cd; }
@@ -425,7 +506,11 @@ body.dark .filter-row button:hover:not(.active) { border-color: var(--zen-mint);
 body.dark .filter-row button.active { background: var(--zen-mint); border-color: var(--zen-mint); color: #04140d; }
 body.dark .error { background: rgba(248, 113, 113, .14); color: #f5b5b5; }
 
-/* ============ zen theme (warm white + sage) ============ */
+/* **********************************************************************
+ *   Zen_Theme
+ *
+ *   Warm white and sage.
+ ********************************************************************** */
 /* A third option alongside dark and light, not a replacement for either.
    Palette: warm white #FBF7EC, sage #4B7A48 (bright #6E9468, deep #2F4A2C),
    clay highlight #D99F6E. Sage is the one primary accent everywhere the
@@ -503,6 +588,9 @@ body.zen input[type=text], body.zen select { background: #FFFEFA; border-color: 
 body.zen input[type=text]:focus, body.zen select:focus {
   border-color: var(--zen-green-bright); box-shadow: 0 0 0 2px rgba(75, 122, 72, .18);
 }
+body.zen button.link:hover:not(:disabled) {
+  background: none; box-shadow: none; color: var(--zen-green-bright);
+}
 body.zen button:disabled { background: #E3DBC8; color: #9A9080; }
 body.zen .card { background: #FFFEFA; border-color: #E6DEC9; box-shadow: 0 2px 12px rgba(75, 122, 72, .08); }
 body.zen .col-label { color: #6E6455; }
@@ -513,9 +601,7 @@ body.zen .src-icon { background: #EDE6D4; color: #8A7F68; }
 body.zen .src-tile.on .src-icon { background: var(--zen-green-btn); color: #fff; }
 body.zen .src-meta small { color: #6E6455; }
 body.zen .switch { background: #E6DEC9; }
-body.zen .soon-badge { background: #EDE6D4; color: #8A7F68; }
 body.zen .src-divider { border-color: #EDE6D4; }
-body.zen .src-tile.soon { opacity: .7; }
 body.zen #ws-list label { color: #332B22; }
 body.zen .progress { color: #6E6455; }
 body.zen .progress b { color: #332B22; }
@@ -524,7 +610,6 @@ body.zen .field-row:hover { box-shadow: 0 2px 8px rgba(75, 122, 72, .18); }
 body.zen .field-row.active { background: #E3ECE0; }
 body.zen .field-row .fname small { color: #6E6455; }
 body.zen .chip.clear { background: #E3ECE0; color: #2F4A2C; }
-body.zen .chip.used { background: #F3D9CC; color: #A24E2E; }
 body.zen .chip.na, body.zen .chip.unchecked { background: #ECE5D3; color: #6E6455; }
 body.zen .chip.src-an { background: #E3ECE0; }
 body.zen .chip.src-fn { background: #EAF0E6; }
@@ -556,7 +641,9 @@ body.zen .theme-option { color: #332B22; }
 body.zen .theme-option:hover:not(:disabled) { background: #F5F0E3; }
 body.zen .theme-option.active { background: #E3ECE0; color: #2F4A2C; }
 
-/* ============ loader overlay ============ */
+/* **********************************************************************
+ *   Loader_Overlay
+ ********************************************************************** */
 #loader {
   position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
   background: rgba(246, 248, 247, .93); backdrop-filter: blur(3px);
@@ -595,6 +682,22 @@ body.dark #loader .pill {
 #loader .p4 { right: 4%; top: 56px; animation: floaty 4.1s ease-in-out .1s infinite; }
 #loader .p5 { right: 0; top: 140px; animation: floaty 3.7s ease-in-out 1.2s infinite; }
 #loader .p6 { right: 5%; top: 224px; animation: floaty 4.5s ease-in-out .5s infinite; }
+/* the otter only gets a coffee once a run is known to be a long one */
+.otter-coffee { opacity: 0; transition: opacity .8s ease; }
+#loader.long-run .otter-coffee { opacity: 1; }
+.steam { transform-origin: center bottom; }
+#loader.long-run .steam { animation: steam-rise 3s ease-in-out infinite; }
+#loader.long-run .steam2 { animation-delay: 1s; }
+#loader.long-run .steam3 { animation-delay: 2s; }
+@keyframes steam-rise {
+  0% { opacity: 0; transform: translateY(4px) scale(.85); }
+  35% { opacity: .8; }
+  100% { opacity: 0; transform: translateY(-12px) scale(1.15); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #loader.long-run .steam { animation: none; }
+}
+
 .loader-caption {
   margin-top: 6px; font-size: 13px; letter-spacing: .8px; font-weight: 700;
   font-family: var(--font-display); color: #01784E;
@@ -642,7 +745,9 @@ body.dark #mini-status { background: rgba(11, 19, 16, .88); color: var(--zen-min
   .otter-wrap svg, #loader .pill, .loader-shadow, #loader-fill.indet, #mini-otter svg { animation: none; }
 }
 
-/* ============ theme-switch circular reveal ============ */
+/* **********************************************************************
+ *   Theme_Switch_Reveal
+ ********************************************************************** */
 /* Picking a theme from the dropdown grows a circle from the clicked option
    outward over the whole page. The browser's default cross-fade is turned
    off on both snapshots so only the clip-path circle we animate from JS

@@ -1,8 +1,16 @@
 "use strict";
 
-// The scan pipeline: connect to Analytics, walk workspaces and views, capture
-// table columns and query table SQL, and optionally pull CRM Deluge function
-// code. Results land in S and are cached in localStorage.
+/* **********************************************************************
+ *   Scan_Pipeline
+ *
+ *   Connects to Analytics, walks workspaces and views, captures table
+ *   columns and query table SQL, then pulls whichever CRM sources are
+ *   toggled on. Everything lands in S and is cached to localStorage.
+ ********************************************************************** */
+
+/* **********************************************************************
+ *   Orgs_Workspaces_And_Folders
+ ********************************************************************** */
 
 function loadOrgs() {
   clearError();
@@ -61,26 +69,25 @@ function loadWorkspaces() {
   }).catch(function (err) { showError(String(err && err.message || err)); });
 }
 
-// The workspace/folder pickers only matter for the reverse audit (that's
-// where a mixed workspace's cross-app noise actually causes problems), so
-// they stay hidden otherwise to keep the normal scan card uncluttered. A
-// normal scan just covers every folder, as it always has — see
-// scanAnalytics's filterByFolder.
-// Selection state itself isn't reset when hidden, it still governs
-// scanAnalytics() either way.
+//==========// Only the reverse audit needs the workspace and folder pickers, so
+//==========// they stay hidden otherwise. Hiding does not reset the selection.
 function updateSelectorVisibility() {
-  var show = $("include-reverse-audit").checked;
-  $("ws-section").classList.toggle("hidden", !show || !S.workspaces.length);
+  $("ws-section").classList.toggle("hidden", !S.workspaces.length);
   renderFolderList();
 }
 
-// One workspace can mix tables from several apps (e.g. a consolidated "Zoho
-// One" workspace), which confuses the reverse audit's name matching (that's
-// the only place folder selection is actually applied, see scanAnalytics).
-// Best-effort: if a workspace's folders can't be read, scanning it stays
-// unfiltered rather than silently excluding everything. Default to only the
-// CRM data folder selected, since that's the one real signal to trust
-// automatically; everything else needs an explicit opt-in.
+//==========// Folder pills are only shown for the reverse audit, where the list is
+//==========// already narrowed to the CRM data folder. For a normal scan there can
+//==========// be dozens, so the scan plan does that job instead: same folders, with
+//==========// a table count and a time against each.
+function foldersArePickable() {
+  return $("include-reverse-audit").checked;
+}
+
+//==========// A consolidated workspace mixes several apps' tables, which confuses
+//==========// the reverse audit's name matching, so the CRM data folder is the only
+//==========// one selected by default. An unreadable folder list scans unfiltered
+//==========// rather than silently excluding everything.
 function loadFolders() {
   S.folders = [];
   return runQueue(S.workspaces, function (w) {
@@ -90,7 +97,11 @@ function loadFolders() {
         S.folders.push({
           folderId: f.folderId, folderName: f.folderName,
           wsId: w.workspaceId, wsName: w.workspaceName,
-          selected: f.folderName.toLowerCase().indexOf("zoho crm modules (data)") >= 0
+          //==========// everything is in scope until someone narrows it deliberately
+          selected: true,
+          //==========// the folder Zoho syncs CRM data into, which is the one the
+          //==========// reverse audit wants on its own
+          isCrmData: f.folderName.toLowerCase().indexOf("zoho crm modules (data)") >= 0
         });
       });
     }).catch(function () { /* best-effort; that workspace just scans unfiltered */ });
@@ -99,12 +110,12 @@ function loadFolders() {
 
 function renderFolderList() {
   var section = $("folder-section");
-  var show = $("include-reverse-audit").checked;
+  if (!foldersArePickable()) { section.classList.add("hidden"); return; }
   var visible = S.folders.filter(function (f) {
     var ws = S.workspaces.filter(function (w) { return w.workspaceId === f.wsId; })[0];
     return ws && ws.selected;
   }).sort(function (a, b) { return (b.selected ? 1 : 0) - (a.selected ? 1 : 0); });
-  if (!show || !visible.length) { section.classList.add("hidden"); return; }
+  if (!visible.length) { section.classList.add("hidden"); return; }
   section.classList.remove("hidden");
   var box = $("folder-list");
   box.innerHTML = "";
@@ -124,8 +135,7 @@ function renderFolderList() {
   });
 }
 
-// Only filters a workspace's views if we actually have folder data for it;
-// an unread folder list or an unrecognized folderId never blocks scanning.
+//==========// an unread folder list or unknown folderId never blocks scanning
 function folderAllowed(wsId, folderId) {
   var wsFolders = S.folders.filter(function (f) { return f.wsId === wsId; });
   if (!wsFolders.length) return true;
@@ -137,8 +147,52 @@ function selectedWorkspaces() {
   return S.workspaces.filter(function (w) { return w.selected; });
 }
 
-// Source toggle tiles: keep the tile styling in sync and refresh the button
-["include-an", "include-fns", "include-reports", "include-workflows"].forEach(function (id) {
+/* **********************************************************************
+ *   Scan_Errors
+ ********************************************************************** */
+
+//==========// One message for every scan failure. The scope is named as the most
+//==========// likely cause rather than the certain one: a scope that is already
+//==========// granted sends people hunting the wrong problem, so the underlying
+//==========// error is always shown alongside it.
+function scanFailed(what, scope, unaffected, err) {
+  showError(what + " scan failed" + (unaffected ? " (" + unaffected + " unaffected)" : "") + ". " +
+    "Most often this is the \"" + $("conn-crm").value + "\" connection missing its " + scope +
+    " scope, but check the error below before changing anything.\n" +
+    String(err && err.message || err));
+}
+
+/* **********************************************************************
+ *   Paging
+ *
+ *   CRM list endpoints return at most 200 rows and flag the rest through
+ *   info.more_records. Every list call goes through here so no source can
+ *   silently truncate a large org.
+ ********************************************************************** */
+
+function listAllPages(path, key) {
+  function page(n, all) {
+    var sep = path.indexOf("?") < 0 ? "?" : "&";
+    return crmGet(path + sep + "page=" + n + "&per_page=200").then(function (body) {
+      all = all.concat((body && body[key]) || []);
+      return (body && body.info && body.info.more_records) ? page(n + 1, all) : all;
+    });
+  }
+  return page(1, []);
+}
+
+//==========// A few settings endpoints reject page and per_page outright with
+//==========// INVALID_REQUEST, so they are fetched in a single unparameterized call.
+function listOnePage(path, key) {
+  return crmGet(path).then(function (body) { return (body && body[key]) || []; });
+}
+
+/* **********************************************************************
+ *   Source_Toggles
+ ********************************************************************** */
+
+//==========// keep each tile's styling in sync with its checkbox
+["include-an", "include-crm", "include-reports"].forEach(function (id) {
   var cb = $(id);
   cb.onchange = function () {
     cb.closest(".src-tile").classList.toggle("on", cb.checked);
@@ -146,13 +200,22 @@ function selectedWorkspaces() {
   };
 });
 
-// The reverse audit is a different operation (Analytics -> CRM instead of
-// CRM -> Analytics) that runs standalone; selecting it locks out the normal
-// scan sources rather than combining with them.
+//==========// The reverse audit runs the opposite direction and runs standalone,
+//==========// so selecting it locks out the normal sources instead of combining.
+//==========// the reverse audit sweeps every column, so unrelated apps' tables are
+//==========// pure noise for it; narrow to the CRM data folder when it is switched on
+function applyCrmDataFolderPreset() {
+  var anyCrmData = S.folders.some(function (f) { return f.isCrmData; });
+  if (!anyCrmData) return;
+  S.folders.forEach(function (f) { f.selected = !!f.isCrmData; });
+}
+
 $("include-reverse-audit").onchange = function () {
   var cb = $("include-reverse-audit");
   var exclusive = cb.checked;
-  ["include-an", "include-fns", "include-reports", "include-workflows"].forEach(function (id) {
+  if (exclusive) applyCrmDataFolderPreset();
+  else S.folders.forEach(function (f) { f.selected = true; });
+  ["include-an", "include-crm", "include-reports"].forEach(function (id) {
     var other = $(id);
     other.disabled = exclusive;
     other.closest(".src-tile").classList.toggle("disabled-tile", exclusive);
@@ -166,9 +229,7 @@ $("include-reverse-audit").onchange = function () {
   updateSelectorVisibility();
 };
 
-// The scan button reads as "Scan 2 sources · 4 workspaces" and stays
-// disabled until at least one runnable source is ready. In reverse-audit
-// mode it reads "Run reverse audit · N workspaces" instead.
+//==========// reads "Scan 2 sources - 4 workspaces", disabled until a source is ready
 function updateScanButton() {
   var btn = $("btn-scan");
   var ws = selectedWorkspaces().length;
@@ -177,111 +238,296 @@ function updateScanButton() {
     btn.disabled = !!(S.scanning || !S.sdkReady || !ws);
     return;
   }
-  var an = $("include-an").checked, fns = $("include-fns").checked,
-    reports = $("include-reports").checked, workflows = $("include-workflows").checked;
-  var srcs = (an ? 1 : 0) + (fns ? 1 : 0) + (reports ? 1 : 0) + (workflows ? 1 : 0);
+  var an = $("include-an").checked, crm = $("include-crm").checked,
+    reports = $("include-reports").checked;
+  var srcs = (an ? 1 : 0) + (crm ? 1 : 0) + (reports ? 1 : 0);
   var label = "Scan " + srcs + (srcs === 1 ? " source" : " sources");
   if (an) label += " · " + ws + (ws === 1 ? " workspace" : " workspaces");
   btn.textContent = srcs ? label : "Scan";
   btn.disabled = !!(S.scanning || !S.sdkReady || !srcs || (an && !ws));
 }
 
-// The scan only needs deep details for Tables (their columns carry the
-// columnIds used by the dependents API) and Query Tables (their SQL).
-// Everything else is reached through Zoho's own dependency engine.
-$("btn-scan").onclick = function () {
-  clearError();
+/* **********************************************************************
+ *   Scan_Plan
+ *
+ *   Listing what exists is cheap, about a dozen calls. Reading the detail
+ *   is not: one metered call per Analytics table, per function, and per
+ *   rule, which is thousands of calls and minutes of waiting in a real
+ *   org. So the plan runs the listing on its own first and shows what a
+ *   scan would cost, broken down far enough to act on.
+ *
+ *   Folders are the useful lever. A consolidated workspace mixes several
+ *   apps, and for a CRM field audit most of those tables are noise, so
+ *   dropping a folder can take minutes off the run.
+ ********************************************************************** */
 
-  if ($("include-reverse-audit").checked) {
-    var wsTargets = selectedWorkspaces();
-    if (!wsTargets.length) { showError("Select at least one workspace."); return; }
-    S.scanning = true;
-    $("btn-scan").disabled = true;
-    $("scan-progress").classList.remove("done");
-    S.tables = []; S.queryTables = []; S.viewCount = 0; S.depCache = {};
-    scanAnalytics(wsTargets, true).then(function () {
-      S.scannedAt = new Date().toLocaleString();
-      return runReverseAudit();
-    }).then(function () {
-      S.scanning = false;
-      hideLoader();
-      updateScanButton();
-      $("setup-card").classList.add("collapsed");
-      var t = $("btn-toggle-setup");
-      t.classList.remove("hidden");
-      t.textContent = "Settings";
-      $("results").classList.add("hidden");
-      $("reverse-audit-card").classList.remove("hidden");
-    }).catch(function (err) {
-      S.scanning = false;
-      hideLoader();
-      updateScanButton();
-      showError(String(err && err.message || err));
-    });
-    return;
+//==========// per-folder table counts, which is the granularity worth choosing at
+function planAnalytics() {
+  var targets = selectedWorkspaces();
+  if (!$("include-an").checked || !targets.length) return Promise.resolve([]);
+  var rows = [];
+  return runQueue(targets, function (w) {
+    $("scan-progress").innerHTML = "Listing views in <b>" + esc(w.workspaceName) + "</b>&hellip;";
+    return analyticsGet("/workspaces/" + w.workspaceId + "/views", { noOfResult: 1000 })
+      .then(function (body) {
+        var byFolder = {};
+        ((body.data && body.data.views) || []).forEach(function (v) {
+          if (v.viewType !== "Table" && v.viewType !== "QueryTable") return;
+          var key = v.folderId == null ? "" : String(v.folderId);
+          byFolder[key] = (byFolder[key] || 0) + 1;
+        });
+        Object.keys(byFolder).forEach(function (folderId) {
+          var folder = S.folders.filter(function (f) {
+            return f.wsId === w.workspaceId && String(f.folderId) === folderId;
+          })[0];
+          rows.push({
+            wsId: w.workspaceId, wsName: w.workspaceName,
+            folderId: folderId, folderName: folder ? folder.folderName : "(unfiled)",
+            tables: byFolder[folderId], folder: folder
+          });
+        });
+      })
+      .catch(function () { /* a workspace we cannot list simply contributes nothing */ });
+  }).then(function () {
+    rows.sort(function (a, b) { return b.tables - a.tables; });
+    return rows;
+  });
+}
+
+//==========// one list call per CRM source, which is where the counts come from
+function planCrm() {
+  if (!$("include-crm").checked) return Promise.resolve([]);
+  var rows = [];
+  function count(label, path, key, detailPerItem) {
+    $("scan-progress").innerHTML = "Listing " + esc(label) + "&hellip;";
+    return listAllPages(path, key).then(function (items) {
+      rows.push({ label: label, items: items.length, calls: detailPerItem ? items.length : 0 });
+    }).catch(function () { rows.push({ label: label, items: null, calls: 0 }); });
   }
+  return count("Deluge functions", "/settings/functions", "functions", true)
+    .then(function () { return count("workflow rules", "/settings/automation/workflow_rules", "workflow_rules", true); })
+    .then(function () { return count("field updates", "/settings/automation/field_updates", "field_updates", false); })
+    .then(function () { return count("scoring rules", "/settings/automation/scoring_rules", "scoring_rules", false); })
+    .then(function () { return count("blueprints", "/settings/blueprints", "blueprints", false); })
+    .then(function () { return count("webhooks", "/settings/automation/webhooks", "webhooks", false); })
+    .then(function () { return rows; });
+}
 
-  var doAn = $("include-an").checked, doFns = $("include-fns").checked,
-    doReports = $("include-reports").checked, doWorkflows = $("include-workflows").checked;
-  if (!doAn && !doFns && !doReports && !doWorkflows) { showError("Turn on at least one scan source."); return; }
-  var targets = doAn ? selectedWorkspaces() : [];
-  if (doAn && !targets.length) { showError("Select at least one workspace."); return; }
-  S.scanning = true;
-  S.analyticsScanned = doAn;
-  $("btn-scan").disabled = true;
-  $("scan-progress").classList.remove("done");
-  S.tables = []; S.queryTables = []; S.viewCount = 0; S.depCache = {}; S.results = {};
+function planReports() {
+  if (!$("include-reports").checked) return Promise.resolve(null);
+  $("scan-progress").innerHTML = "Listing CRM reports&hellip;";
+  return crmGet("/Reports").then(function (body) {
+    var all = (body && (body.reports || body.Reports)) || [];
+    var fresh = all.filter(wasRecentlyAccessed);
+    return { items: fresh.length, skipped: all.length - fresh.length, calls: fresh.length };
+  }).catch(function () { return null; });
+}
 
-  (doAn ? scanAnalytics(targets) : Promise.resolve()).then(function () {
-    return doFns ? scanFunctions() : null;
-  }).then(function () {
-    return doReports ? scanReports() : null;
-  }).then(function () {
-    return doWorkflows ? scanWorkflowFieldUpdates() : null;
-  }).then(function () {
-    return doWorkflows ? scanWorkflowRules() : null;
-  }).then(function () {
-    return doWorkflows ? scanScoringRules() : null;
-  }).then(function () {
-    return doWorkflows ? scanBlueprints() : null;
-  }).then(function () {
-    return doWorkflows ? scanWebhooks() : null;
-  }).then(function () {
-    return doWorkflows ? scanConnectedWorkflows() : null;
-  }).then(function () {
-    S.scannedAt = new Date().toLocaleString();
-    try {
-      localStorage.setItem(SCAN_KEY, JSON.stringify({
-        at: S.scannedAt, orgId: S.orgId, dc: $("dc").value,
-        tables: S.tables, queryTables: S.queryTables, viewCount: S.viewCount, analyticsScanned: S.analyticsScanned,
-        functions: S.functions, functionsScanned: S.functionsScanned,
-        reports: S.reports, reportsScanned: S.reportsScanned, reportsSkippedStale: S.reportsSkippedStale,
-        workflowFieldUpdates: S.workflowFieldUpdates, workflowFieldUpdatesScanned: S.workflowFieldUpdatesScanned,
-        workflowRules: S.workflowRules, workflowRulesScanned: S.workflowRulesScanned,
-        scoringRules: S.scoringRules, scoringRulesScanned: S.scoringRulesScanned,
-        blueprintFields: S.blueprintFields, blueprintFieldsScanned: S.blueprintFieldsScanned,
-        webhookActions: S.webhookActions, webhookActionsScanned: S.webhookActionsScanned,
-        connectedWorkflowRules: S.connectedWorkflowRules, connectedWorkflowRulesScanned: S.connectedWorkflowRulesScanned
-      }));
-    } catch (e) { /* cache is best-effort */ }
-    finishScan();
+$("btn-plan").onclick = function () {
+  clearError();
+  var btn = $("btn-plan");
+  btn.disabled = true;
+  btn.textContent = "Checking…";
+  showLoader("Listing what is there…");
+  planAnalytics().then(function (analytics) {
+    return planCrm().then(function (crm) {
+      return planReports().then(function (reports) {
+        S.plan = { analytics: analytics, crm: crm, reports: reports };
+        renderPlan();
+      });
+    });
   }).catch(function (err) {
-    S.scanning = false;
-    hideLoader();
-    updateScanButton();
     showError(String(err && err.message || err));
+  }).then(function () {
+    hideLoader();
+    btn.disabled = false;
+    btn.textContent = "Re-check scan size";
+    $("scan-progress").innerHTML = "";
+    updateScanButton();
   });
 };
 
-// A year's worth of unused reports can be hundreds of detail calls, so this
-// filters to recently-accessed ones before fetching detail at all, not after.
-// Confirmed against a real list response: every report carries last_run_date,
-// null when it's never been run. If it has been run, that's the real signal
-// (within the past year). If it's never been run, fall back to created_time:
-// a never-run report created over 6 months ago is treated as stale and
-// skipped, a newer never-run one still gets a look since it just hasn't had
-// time to be run yet. If neither date is usable at all, there's nothing to
-// judge recency by, so it's skipped too.
+//==========// seconds the current selection would cost, so the total tracks ticking
+//==========// a folder on or off without re-listing anything
+function planSeconds() {
+  if (!S.plan) return null;
+  var secs = 0;
+  S.plan.analytics.forEach(function (r) {
+    if (!r.folder || r.folder.selected) secs += estimateSeconds(r.tables, LIMITS.analytics);
+  });
+  S.plan.crm.forEach(function (r) { secs += estimateSeconds(r.calls, LIMITS.crm); });
+  if (S.plan.reports) secs += estimateSeconds(S.plan.reports.calls, LIMITS.crm);
+  return secs;
+}
+
+function planRow(label, detail, secs, checkbox) {
+  return "<div class='plan-row'>" +
+    "<span class='plan-check'>" + (checkbox || "") + "</span>" +
+    "<span class='plan-label'>" + label + "</span>" +
+    "<span class='plan-count'>" + detail + "</span>" +
+    "<span class='plan-time'>" + (secs == null ? "" : describeDuration(secs)) + "</span>" +
+    "</div>";
+}
+
+function renderPlan() {
+  var plan = S.plan;
+  if (!plan) return;
+  var html = "";
+
+  if (plan.analytics.length) {
+    html += "<div class='plan-group'>Zoho Analytics tables</div>";
+    plan.analytics.forEach(function (r, i) {
+      var on = !r.folder || r.folder.selected;
+      var box = r.folder
+        ? "<input type='checkbox' data-plan-folder='" + i + "'" + (on ? " checked" : "") + ">"
+        : "<span class='plan-fixed' title='no folder information, always scanned'>&bull;</span>";
+      html += planRow(esc(r.folderName) + " <small>" + esc(r.wsName) + "</small>",
+        r.tables + " " + qty(r.tables, "table"),
+        estimateSeconds(r.tables, LIMITS.analytics), box);
+    });
+  }
+
+  if (plan.crm.length) {
+    html += "<div class='plan-group'>CRM functions and automations</div>";
+    plan.crm.forEach(function (r) {
+      var detail = r.items == null ? "could not list" : r.items + " found";
+      html += planRow(esc(r.label), detail,
+        r.calls ? estimateSeconds(r.calls, LIMITS.crm) : 0, "");
+    });
+  }
+
+  if (plan.reports) {
+    html += "<div class='plan-group'>CRM reports</div>";
+    html += planRow("reports to read",
+      plan.reports.items + " recent" +
+      (plan.reports.skipped ? ", " + plan.reports.skipped + " stale and skipped" : ""),
+      estimateSeconds(plan.reports.calls, LIMITS.crm), "");
+  }
+
+  $("plan-body").innerHTML = html || "<p class='section-note'>Nothing selected to scan.</p>";
+  $("plan").classList.remove("hidden");
+  refreshPlanTotal();
+
+  //==========// unticking a folder drops it from the scan and from the total
+  Array.prototype.forEach.call($("plan-body").querySelectorAll("[data-plan-folder]"), function (cb) {
+    cb.onchange = function () {
+      var row = S.plan.analytics[Number(cb.getAttribute("data-plan-folder"))];
+      if (row && row.folder) row.folder.selected = cb.checked;
+      refreshPlanTotal();
+      renderFolderList();
+      updateScanButton();
+    };
+  });
+}
+
+function refreshPlanTotal() {
+  var secs = planSeconds();
+  $("plan-total").textContent = secs == null ? "" : describeDuration(secs) + " to scan";
+}
+
+/* **********************************************************************
+ *   Running_A_Scan
+ *
+ *   Two independent runs share the Scan button: the normal CRM to Analytics
+ *   field scan, and the standalone reverse audit. Only Tables and Query
+ *   Tables need deep detail fetches; every other Analytics view type is
+ *   reached later through Zoho's own dependency engine.
+ ********************************************************************** */
+
+//==========// The seven sub-scans behind the single CRM toggle. Deluge code and
+//==========// the automations run together on purpose: a rule's action list is what
+//==========// tells us which module a thin automation function belongs to, so
+//==========// scanning code without them would quietly weaken every function
+//==========// verdict (see wiredModulesFor in fields.js).
+var CRM_SCANS = [
+  scanFunctions, scanWorkflowFieldUpdates, scanWorkflowRules, scanScoringRules,
+  scanBlueprints, scanWebhooks, scanConnectedWorkflows
+];
+
+function beginScan() {
+  resetLoaderCaption();
+  hideSaveNudge();
+  S.importedFrom = null;
+  S.scanStartedAt = Date.now();
+  S.lastScanSeconds = null;
+  S.scanning = true;
+  $("btn-scan").disabled = true;
+  $("scan-progress").classList.remove("done");
+  S.tables = []; S.queryTables = []; S.viewCount = 0; S.depCache = {};
+}
+
+function failScan(err) {
+  S.scanning = false;
+  hideLoader();
+  resetLoaderCaption();
+  updateScanButton();
+  showError(String(err && err.message || err));
+}
+
+//==========// collapse the setup card and reveal whichever results panel applies
+function showResultsPanel(id) {
+  S.scanning = false;
+  hideLoader();
+  updateScanButton();
+  $("setup-card").classList.add("collapsed");
+  var toggle = $("btn-toggle-setup");
+  toggle.classList.remove("hidden");
+  toggle.textContent = "Settings";
+  $("results").classList.toggle("hidden", id !== "results");
+  $("reverse-audit-card").classList.toggle("hidden", id !== "reverse-audit-card");
+}
+
+function runReverseAuditScan() {
+  var targets = selectedWorkspaces();
+  if (!targets.length) { showError("Select at least one workspace."); return; }
+  beginScan();
+  scanAnalytics(targets, true).then(function () {
+    S.scannedAt = new Date().toLocaleString();
+    return runReverseAudit();
+  }).then(function () {
+    showResultsPanel("reverse-audit-card");
+  }).catch(failScan);
+}
+
+function runFieldScan() {
+  var doAn = $("include-an").checked, doCrm = $("include-crm").checked,
+    doReports = $("include-reports").checked;
+  if (!doAn && !doCrm && !doReports) { showError("Turn on at least one scan source."); return; }
+  var targets = doAn ? selectedWorkspaces() : [];
+  if (doAn && !targets.length) { showError("Select at least one workspace."); return; }
+  beginScan();
+  S.analyticsScanned = doAn;
+  S.results = {};
+
+  //==========// sources run one after another to stay inside API rate limits
+  var steps = [];
+  if (doAn) steps.push(function () { return scanAnalytics(targets, true); });
+  if (doReports) steps.push(scanReports);
+  if (doCrm) CRM_SCANS.forEach(function (fn) { steps.push(fn); });
+
+  runQueue(steps, function (step) { return step(); }).then(function () {
+    S.scannedAt = new Date().toLocaleString();
+    cacheScan();
+    finishScan();
+  }).catch(failScan);
+}
+
+$("btn-scan").onclick = function () {
+  clearError();
+  if ($("include-reverse-audit").checked) runReverseAuditScan();
+  else runFieldScan();
+};
+
+/* **********************************************************************
+ *   Report_Recency
+ *
+ *   A year of unused reports is hundreds of detail calls, so stale reports
+ *   are filtered out before any detail is fetched. last_run_date is the
+ *   real signal; a report that has never run falls back to created_time,
+ *   giving a genuinely new report a grace period before it counts as
+ *   stale. No usable date either way means it is skipped.
+ ********************************************************************** */
+
 var REPORT_RECENCY_DAYS = 365;
 var REPORT_NEW_GRACE_DAYS = 180;
 function withinDays(dateStr, days) {
@@ -298,10 +544,11 @@ function wasRecentlyAccessed(r) {
   return false;
 }
 
-// The list endpoint below (/crm/v8/Reports) is a best-effort guess, only the
-// detail endpoint (/crm/v8/Reports/{id}) has been confirmed from a real
-// network capture. If this comes back empty on a real org, check the
-// network tab for the actual list call and fix the path here.
+/* **********************************************************************
+ *   Reports
+ ********************************************************************** */
+
+//==========// the list response key casing varies by org, so accept either
 function scanReports() {
   S.reports = []; S.reportsScanned = false;
   $("scan-progress").innerHTML = "Listing CRM reports&hellip;";
@@ -337,15 +584,12 @@ function scanReports() {
       }
     });
   }).catch(function (err) {
-    showError("Reports scan failed. Check the \"" + $("conn-crm").value +
-      "\" connection and its ZohoCRM.settings.reports.READ scope.\n" + String(err && err.message || err));
+    scanFailed("Reports", "ZohoCRM.settings.reports.READ", null, err);
   });
 }
 
-// Walks a report's columns and filters (recursively through nested filter
-// groups, plus the separate date_filter) collecting every field reference.
-// Scoped to columns + filters only, by design; group_by/sort_by/aggregate
-// functions/territory_filter aren't included.
+//==========// Columns and filters only, by design: group_by, sort_by, aggregate
+//==========// functions and territory_filter are deliberately out of scope.
 function extractReportFieldRefs(report) {
   var refs = [];
   (report.columns || []).forEach(function (c) {
@@ -361,27 +605,30 @@ function extractReportFieldRefs(report) {
   return refs;
 }
 
-// Zoho's criteria tree (used for both a rule's trigger criteria and its
-// firing conditions, see config-workflow.html) nests as {group_operator,
-// group: [...]}, bottoming out at {field: {api_name}, comparator, value}.
-// The Edit trigger's "specific fields" checkbox list (vs. a real value
-// comparison) reuses this exact same tree, just with comparator/value set to
-// the sentinel "${ANYVALUE}" - confirmed against a live rule, not guessed -
-// so no separate handling is needed for it. relational_criteria (comparing
-// against another module's field rather than a literal value) isn't walked,
-// same deliberate scoping choice as extractReportFieldRefs skipping
-// group_by/aggregate.
+/* **********************************************************************
+ *   Criteria_Trees
+ ********************************************************************** */
+
+/*
+ *   Zoho nests criteria as {group_operator, group: [...]}, bottoming out
+ *   at {field: {api_name}, comparator, value}. Workflow rules, scoring
+ *   rules and connected workflows all reuse this shape, so one walker
+ *   serves all three.
+ *
+ *   The Edit trigger's "specific fields" checkbox list reuses the same
+ *   tree with comparator and value set to the sentinel ${ANYVALUE}, so it
+ *   needs no special handling. relational_criteria, which compares against
+ *   another module's field, is deliberately not walked.
+ */
+
 function walkCriteriaGroup(node, refs) {
   if (!node) return;
   if (node.group && node.group.length) { node.group.forEach(function (g) { walkCriteriaGroup(g, refs); }); return; }
   if (node.field && node.field.api_name) refs.push(node.field.api_name);
 }
 
-// A rule's own criteria for firing (execute_when.details.criteria) is
-// distinct from the module-wide "when to fire" condition list (conditions[]
-// .criteria_details.criteria) - kept as two separate reference lists so a
-// field can be flagged as "used as a trigger" separately from "used in
-// firing criteria," per your call.
+//==========// Kept as two lists, not merged: "fires the rule" and "filters the
+//==========// rule" are different facts about a field.
 function extractTriggerFieldRefs(rule) {
   var refs = [];
   walkCriteriaGroup(rule.execute_when && rule.execute_when.details && rule.execute_when.details.criteria, refs);
@@ -395,19 +642,34 @@ function extractConditionFieldRefs(rule) {
   return refs;
 }
 
+/* **********************************************************************
+ *   Automations
+ ********************************************************************** */
+
+//==========// A rule's actions are nested per condition, split across instant and
+//==========// scheduled. Only entries typed "functions" name a Deluge function.
+function extractFunctionActions(rule) {
+  var out = [], seen = {};
+  (rule.conditions || []).forEach(function (c) {
+    [c.instant_actions, c.scheduled_actions].forEach(function (bucket) {
+      ((bucket && bucket.actions) || []).forEach(function (a) {
+        if (!a || a.type !== "functions" || !a.name) return;
+        var key = norm(a.name);
+        if (seen[key]) return;
+        seen[key] = 1;
+        out.push({ name: a.name, id: a.id });
+      });
+    });
+  });
+  return out;
+}
+
 function scanWorkflowRules() {
   S.workflowRules = []; S.workflowRulesScanned = false;
   $("scan-progress").innerHTML = "Listing CRM workflow rules&hellip;";
   showLoader("Listing CRM workflow rules...");
   var failures = 0;
-  function listPage(page, all) {
-    return crmGet("/settings/automation/workflow_rules?page=" + page + "&per_page=200").then(function (body) {
-      all = all.concat((body && body.workflow_rules) || []);
-      var info = body && body.info;
-      return (info && info.more_records) ? listPage(page + 1, all) : all;
-    });
-  }
-  return listPage(1, []).then(function (list) {
+  return listAllPages("/settings/automation/workflow_rules", "workflow_rules").then(function (list) {
     var listed = list.length;
     return runQueue(list, function (rule) {
       return crmGet("/settings/automation/workflow_rules/" + rule.id).then(function (detail) {
@@ -416,7 +678,8 @@ function scanWorkflowRules() {
         S.workflowRules.push({
           id: full.id, name: full.name, moduleApiName: full.module.api_name, moduleId: full.module.id,
           triggerFields: extractTriggerFieldRefs(full),
-          criteriaFields: extractConditionFieldRefs(full)
+          criteriaFields: extractConditionFieldRefs(full),
+          functionActions: extractFunctionActions(full)
         });
       }).catch(function () { failures++; });
     }, function (i, n, rule) {
@@ -430,15 +693,12 @@ function scanWorkflowRules() {
       }
     });
   }).catch(function (err) {
-    showError("Workflow rules scan failed (field update matching is unaffected). Check the \"" + $("conn-crm").value +
-      "\" connection and its ZohoCRM.settings.workflow_rules.READ scope.\n" + String(err && err.message || err));
+    scanFailed("Workflow rules", "ZohoCRM.settings.workflow_rules.READ", "field update matching is", err);
   });
 }
 
-// Unlike workflow rules, the scoring rules LIST endpoint already embeds each
-// rule's full field_rules[].criteria tree, so no per-rule detail fetch is
-// needed here. signal_rules (email opens/clicks) are a parallel, non-field
-// scoring mechanism and are intentionally not extracted.
+//==========// The scoring list endpoint embeds each criteria tree already, so no
+//==========// per-rule fetch. signal_rules are not field-based and are skipped.
 function extractScoringFieldRefs(rule) {
   var refs = [];
   (rule.field_rules || []).forEach(function (fr) { walkCriteriaGroup(fr.criteria, refs); });
@@ -448,71 +708,43 @@ function scanScoringRules() {
   S.scoringRules = []; S.scoringRulesScanned = false;
   $("scan-progress").innerHTML = "Listing CRM scoring rules&hellip;";
   showLoader("Listing CRM scoring rules...");
-  function listPage(page, all) {
-    return crmGet("/settings/automation/scoring_rules?page=" + page + "&per_page=200").then(function (body) {
-      ((body && body.scoring_rules) || []).forEach(function (rule) {
-        if (!rule.module) return;
-        all.push({
-          id: rule.id, name: rule.name, moduleApiName: rule.module.api_name, moduleId: rule.module.id,
-          criteriaFields: extractScoringFieldRefs(rule)
-        });
-      });
-      var info = body && body.info;
-      return (info && info.more_records) ? listPage(page + 1, all) : all;
+  return listAllPages("/settings/automation/scoring_rules", "scoring_rules").then(function (rules) {
+    S.scoringRules = rules.filter(function (rule) { return !!rule.module; }).map(function (rule) {
+      return {
+        id: rule.id, name: rule.name, moduleApiName: rule.module.api_name, moduleId: rule.module.id,
+        criteriaFields: extractScoringFieldRefs(rule)
+      };
     });
-  }
-  return listPage(1, []).then(function (all) {
-    S.scoringRules = all;
     S.scoringRulesScanned = true;
   }).catch(function (err) {
-    showError("Scoring rules scan failed (other automation matching is unaffected). Check the \"" + $("conn-crm").value +
-      "\" connection and its ZohoCRM.settings.scoring_rules.READ scope.\n" + String(err && err.message || err));
+    scanFailed("Scoring rules", "ZohoCRM.settings.scoring_rules.READ", "other automation matching is", err);
   });
 }
 
-// The Blueprints list endpoint gives each blueprint's single governing
-// process field directly (e.g. the "Status" picklist driving the flow), no
-// per-blueprint detail fetch needed. Per-transition mandatory fields
-// (during_inputs) and per-transition criteria aren't included here: that API
-// requires already knowing transition IDs with no documented way to
-// enumerate them, so that finer-grained piece isn't buildable right now.
+//==========// The list endpoint names each blueprint's single governing field, so no
+//==========// per-blueprint fetch. Per-transition fields need transition ids, which
+//==========// have no documented way to enumerate, so they are out of reach.
 function scanBlueprints() {
   S.blueprintFields = []; S.blueprintFieldsScanned = false;
   $("scan-progress").innerHTML = "Listing CRM blueprints&hellip;";
   showLoader("Listing CRM blueprints...");
-  function listPage(page, all) {
-    return crmGet("/settings/blueprints?page=" + page + "&per_page=200").then(function (body) {
-      ((body && body.blueprints) || []).forEach(function (bp) {
-        if (!bp.module || !bp.field) return;
-        all.push({
-          id: bp.id, name: bp.name, moduleApiName: bp.module.api_name, moduleId: bp.module.id,
-          fieldApiName: bp.field.api_name, pipelineName: (bp.pipeline && bp.pipeline.name) || null
-        });
-      });
-      var info = body && body.info;
-      return (info && info.more_records) ? listPage(page + 1, all) : all;
+  return listAllPages("/settings/blueprints", "blueprints").then(function (blueprints) {
+    S.blueprintFields = blueprints.filter(function (bp) { return bp.module && bp.field; }).map(function (bp) {
+      return {
+        id: bp.id, name: bp.name, moduleApiName: bp.module.api_name, moduleId: bp.module.id,
+        fieldApiName: bp.field.api_name, pipelineName: (bp.pipeline && bp.pipeline.name) || null
+      };
     });
-  }
-  return listPage(1, []).then(function (all) {
-    S.blueprintFields = all;
     S.blueprintFieldsScanned = true;
   }).catch(function (err) {
-    showError("Blueprints scan failed (other automation matching is unaffected). Check the \"" + $("conn-crm").value +
-      "\" connection and its ZohoCRM.settings.blueprint.READ scope.\n" + String(err && err.message || err));
+    scanFailed("Blueprints", "ZohoCRM.settings.blueprint.READ", "other automation matching is", err);
   });
 }
 
-// Webhook parameter values embed fields as Zoho's self-describing merge-tag
-// syntax ${!Module.Field}, naming both module and field explicitly, unlike a
-// bare Deluge function search there's no cross-module ambiguity to guard
-// against. Walks every string value anywhere in the webhook object rather
-// than hardcoding each parameter location (headers, body.form_data_content,
-// url, url_parameters can all carry these, confirmed against the docs), so
-// nothing gets missed. Note: the module name embedded in the tag is
-// whatever string Zoho's merge-tag engine renders, which can differ from a
-// module's api_name for legacy-renamed modules (the same Deals/Potentials
-// quirk fixed elsewhere) - there's no module id inside the tag text to
-// correct for that here.
+//==========// Merge tags name both module and field: ${!Module.Field}. Every string
+//==========// value in the webhook is walked, since headers, body, url and url
+//==========// parameters can all carry them. The module name is whatever Zoho's
+//==========// merge-tag engine renders, and carries no id to correct it by.
 var MERGE_TAG_RE = /\$\{!([A-Za-z0-9_]+)\.([A-Za-z0-9_]+)\}/g;
 function extractMergeTagFieldRefs(obj) {
   var refs = [];
@@ -535,47 +767,29 @@ function scanWebhooks() {
   S.webhookActions = []; S.webhookActionsScanned = false;
   $("scan-progress").innerHTML = "Listing CRM webhooks&hellip;";
   showLoader("Listing CRM webhooks...");
-  function listPage(page, all) {
-    return crmGet("/settings/automation/webhooks?page=" + page + "&per_page=200").then(function (body) {
-      ((body && body.webhooks) || []).forEach(function (wh) {
-        if (!wh.module) return;
-        all.push({ id: wh.id, name: wh.name, moduleApiName: wh.module.api_name, fieldRefs: extractMergeTagFieldRefs(wh) });
-      });
-      var info = body && body.info;
-      return (info && info.more_records) ? listPage(page + 1, all) : all;
+  return listAllPages("/settings/automation/webhooks", "webhooks").then(function (webhooks) {
+    S.webhookActions = webhooks.filter(function (wh) { return !!wh.module; }).map(function (wh) {
+      return {
+        id: wh.id, name: wh.name, moduleApiName: wh.module.api_name,
+        fieldRefs: extractMergeTagFieldRefs(wh)
+      };
     });
-  }
-  return listPage(1, []).then(function (all) {
-    S.webhookActions = all;
     S.webhookActionsScanned = true;
   }).catch(function (err) {
-    showError("Webhooks scan failed (other automation matching is unaffected). Check the \"" + $("conn-crm").value +
-      "\" connection and its ZohoCRM.settings.automation_actions.READ scope.\n" + String(err && err.message || err));
+    scanFailed("Webhooks", "ZohoCRM.settings.automation_actions.READ", "other automation matching is", err);
   });
 }
 
-// Connected Workflows (Zoho Flow-triggered rules) use the identical
-// execute_when/conditions criteria tree as regular Workflow Rules (confirmed
-// against the docs), so the same walkCriteriaGroup-based extraction applies
-// directly. Three-level fetch: list connected workflows, then each one's
-// rules (gives trigger criteria inline, per the docs), then each rule's own
-// detail (needed for firing conditions, which the rules-list response does
-// not include). A rule has no name of its own, only an id, so it's labeled
-// by its parent connected workflow's name (plus a rule index when a
-// workflow has more than one rule).
+//==========// Zoho Flow-triggered rules reuse the workflow criteria tree exactly.
+//==========// Three-level fetch: workflows, then their rules, then each rule's
+//==========// detail, which is the only place firing conditions appear. Rules have
+//==========// no name of their own, so they borrow their workflow's.
 function scanConnectedWorkflows() {
   S.connectedWorkflowRules = []; S.connectedWorkflowRulesScanned = false;
   $("scan-progress").innerHTML = "Listing connected workflows&hellip;";
   showLoader("Listing connected workflows...");
   var failures = 0;
-  function listWorkflows(page, all) {
-    return crmGet("/settings/connected_workflows?page=" + page + "&per_page=200").then(function (body) {
-      all = all.concat((body && body.connected_workflows) || []);
-      var info = body && body.info;
-      return (info && info.more_records) ? listWorkflows(page + 1, all) : all;
-    });
-  }
-  return listWorkflows(1, []).then(function (workflows) {
+  return listOnePage("/settings/connected_workflows", "connected_workflows").then(function (workflows) {
     return runQueue(workflows, function (cw) {
       return crmGet("/settings/connected_workflows/" + cw.id + "/rules").then(function (body) {
         var rules = (body && body.rules) || [];
@@ -603,19 +817,55 @@ function scanConnectedWorkflows() {
       showError("Some connected workflow rules could not be read (other automation matching is unaffected).");
     }
   }).catch(function (err) {
-    showError("Connected workflows scan failed. Check the \"" + $("conn-crm").value +
-      "\" connection and its ZohoCRM.settings.connected_workflows.READ scope.\n" + String(err && err.message || err));
+    scanFailed("Connected workflows", "ZohoCRM.settings.connected_workflows.READ",
+      "other automation matching is", err);
   });
 }
 
-// filterByFolder is only ever true for the reverse audit, which is the one
-// case that actually needs it (narrowing a mixed workspace so its Analytics
-// -> CRM name matching doesn't drown in unrelated apps' tables). A normal
-// scan covers every folder, same as it always has: field-name matching
-// doesn't care what folder a table lives in, only the reverse audit's blind
-// "every column" sweep does.
+/* **********************************************************************
+ *   Analytics_Views
+ ********************************************************************** */
+
+//==========// filterByFolder is only true for the reverse audit, whose blind
+//==========// every-column sweep is the one thing folder noise can drown. Field-name
+//==========// matching does not care what folder a table lives in.
+//==========// Warns before a long run, since Analytics metering makes a big org
+//==========// take minutes and a silent progress bar looks like a hang.
+//==========// The view listing tells us how many tables there are before any of
+//==========// the metered detail reads begin, so the estimate can be given up front
+//==========// rather than leaving someone watching a bar creep for five minutes.
+//==========// three minutes, not two: a short wait does not need a coffee, and the
+//==========// otter earning one should mean something
+var LONG_SCAN_MINUTES = 3;
+
+function noteLongScan(tableCount) {
+  var mins = estimateMinutes(tableCount, LIMITS.analytics);
+  if (mins < LONG_SCAN_MINUTES) return;
+  var p = $("scan-progress");
+  p.classList.remove("done");
+  p.innerHTML = "<b>Large environment</b><span class='scan-stats'>" + tableCount +
+    " tables to read. Zoho Analytics allows 60 of these a minute, so this takes about " +
+    mins + " minutes.</span>";
+  //==========// the loader covers the card, so say it where they are looking, and
+  //==========// hand the otter a coffee while they wait
+  var caption = document.querySelector(".loader-caption");
+  if (caption) caption.textContent = "large environment · about " + mins + " minutes · grab a coffee";
+  $("loader").classList.add("long-run");
+}
+
+//==========// remaining time for a metered run, phrased loosely because it is an
+//==========// estimate: "about 4 minutes left"
+function remainingLabel(done, total, limit) {
+  var left = Math.max(0, total - done);
+  var secs = Math.round((left * limit.minIntervalMs) / 1000);
+  if (secs < 45) return "almost done";
+  if (secs < 90) return "about a minute left";
+  return "about " + Math.round(secs / 60) + " minutes left";
+}
+
 function scanAnalytics(targets, filterByFolder) {
   showLoader("Listing Analytics views…");
+  S.viewsUnreadable = 0;
   var detailTargets = [];
   return runQueue(targets, function (w) {
     $("scan-progress").innerHTML = "Listing views in <b>" + esc(w.workspaceName) + "</b>&hellip;";
@@ -632,6 +882,7 @@ function scanAnalytics(targets, filterByFolder) {
         });
       });
   }).then(function () {
+    noteLongScan(detailTargets.length);
     return runQueue(detailTargets, function (t) {
       return analyticsGet("/views/" + t.view.viewId, { withInvolvedMetaInfo: true })
         .then(function (body) {
@@ -649,7 +900,8 @@ function scanAnalytics(targets, filterByFolder) {
               })
             });
           } else {
-            // SQL key name is plan-dependent; take any long string under a sql/query key
+            //==========// the SQL key name is plan-dependent, so take any long
+            //==========// string living under a sql or query key
             var sql = "";
             (function walk(o) {
               if (!o || typeof o !== "object") return;
@@ -664,23 +916,27 @@ function scanAnalytics(targets, filterByFolder) {
             });
           }
         })
-        .catch(function () { /* skip unreadable views; surfaced in totals */ });
+        .catch(function () { S.viewsUnreadable++; });
     }, function (i, n, t) {
-      $("scan-progress").innerHTML = "Reading structure <b>" + i + " / " + n + "</b> &mdash; " + esc(t.view.viewName);
-      showLoader("Reading structure " + i + " / " + n, n ? i / n : null);
+      $("scan-progress").innerHTML = "Reading structure <b>" + i + " / " + n + "</b> &middot; " + esc(t.view.viewName);
+      var suffix = n >= 60 ? " · " + remainingLabel(i, n, LIMITS.analytics) : "";
+      showLoader("Reading structure " + i + " / " + n + suffix, n ? i / n : null);
     });
   });
 }
 
-// Invoke without the JSON-failure check: /code returns raw file content
-// whose shape through CONNECTION.invoke is not a normal JSON body.
+/* **********************************************************************
+ *   Deluge_Function_Code
+ ********************************************************************** */
+
+//==========// skips invokeConn's JSON check: /code returns a raw file body
 function invokeRaw(connName, url) {
   var req = { url: url, method: "GET", param_type: 1, parameters: {}, headers: {} };
   return ZOHO.CRM.CONNECTION.invoke(connName, req);
 }
 
-// Pull script text out of whatever shape the response takes: a raw text
-// body, a JSON string, or an object with the code nested under some key.
+//==========// the response can be raw text, a JSON string, or an object with the
+//==========// code nested under any of several keys
 function extractCode(x) {
   if (!x) return null;
   if (typeof x === "string") {
@@ -692,7 +948,7 @@ function extractCode(x) {
     return t;
   }
   if (typeof x !== "object") return null;
-  // Error payloads: {"code":"INVALID_TOKEN","message":...} must not pass as script
+  //==========// an error payload like {"code":"INVALID_TOKEN"} must not pass as script
   if (x.status === "failure" || (typeof x.code === "string" && x.message)) return null;
   var keyed = [], other = [];
   (function walk(o) {
@@ -710,25 +966,17 @@ function extractCode(x) {
   return pool.sort(function (a, b) { return b.length - a.length; })[0];
 }
 
-var loggedFirstCodeResp = false;
 function fetchFunctionCode(fn) {
   var conn = $("conn-crm").value.trim();
   var base = crmApiBase() + "/crm/v8/settings/functions/" + fn.id;
   return invokeRaw(conn, base + "/code").then(function (resp) {
-    if (!loggedFirstCodeResp) {
-      loggedFirstCodeResp = true;
-      console.log("FieldCheck: raw /code response for", fn.name, resp);
-    }
-    // File downloads resolve as the raw text body itself; JSON APIs
-    // resolve as {details: {statusMessage: ...}}. Handle both.
+    //==========// file downloads resolve as raw text, JSON APIs as {details:{statusMessage}}
     var payload = (resp && resp.details) ? (resp.details.statusMessage || resp.details) : resp;
     var code = extractCode(payload);
-    if (code) return { code: code, raw: null };
-    // Fallback: the single-function endpoint returns JSON that can carry the script
+    if (code) return code;
+    //==========// fall back to the single-function endpoint, whose JSON can also carry the script
     return invokeRaw(conn, base + "?source=crm").then(function (r2) {
-      var c2 = extractCode(r2 && r2.details && r2.details.statusMessage) ||
-               extractCode(r2 && r2.details);
-      return { code: c2, raw: c2 ? null : JSON.stringify({ codeResp: resp, detailResp: r2 }).slice(0, 800) };
+      return extractCode(r2 && r2.details && r2.details.statusMessage) || extractCode(r2 && r2.details);
     });
   });
 }
@@ -737,115 +985,314 @@ function scanFunctions() {
   S.functions = []; S.functionsScanned = false;
   $("scan-progress").innerHTML = "Listing CRM Deluge functions&hellip;";
   showLoader("Listing CRM Deluge functions…");
-  var failures = 0, firstSample = "";
-  return crmGet("/settings/functions").then(function (body) {
-    var fns = (body && body.functions) || [];
+  var failures = 0;
+  return listAllPages("/settings/functions", "functions").then(function (fns) {
     var listed = fns.length;
     return runQueue(fns, function (fn) {
-      return fetchFunctionCode(fn).then(function (out) {
-        if (out.code) {
-          S.functions.push({ id: fn.id, name: fn.display_name || fn.name, code: out.code });
-        } else {
-          failures++;
-          if (!firstSample && out.raw) firstSample = out.raw;
-        }
-      }).catch(function (err) {
-        failures++;
-        if (!firstSample) firstSample = String(err && err.message || err).slice(0, 800);
-      });
+      return fetchFunctionCode(fn).then(function (code) {
+        if (code) S.functions.push({ id: fn.id, name: fn.display_name || fn.name, code: code });
+        else failures++;
+      }).catch(function () { failures++; });
     }, function (i, n, fn) {
-      $("scan-progress").innerHTML = "Reading function code <b>" + i + " / " + n + "</b> &mdash; " +
+      $("scan-progress").innerHTML = "Reading function code <b>" + i + " / " + n + "</b> &middot; " +
         esc(fn.display_name || fn.name);
       showLoader("Reading function code " + i + " / " + n, n ? i / n : null);
     }).then(function () {
       S.functionsScanned = true;
       if (failures > 0) {
         showError("Read code for " + S.functions.length + " of " + listed + " functions." +
-          (S.functions.length === 0 ? " None were readable, so function matching is inactive." : "") +
-          (firstSample ? "\nFirst unreadable response sample:\n" + firstSample : ""));
+          (S.functions.length === 0 ? " None were readable, so function matching is inactive." : ""));
       }
     });
   }).catch(function (err) {
-    showError("Functions scan failed (Analytics results are unaffected). Check the \"" +
-      $("conn-crm").value + "\" connection and its ZohoCRM.settings.functions.READ scope.\n" +
-      String(err && err.message || err));
+    scanFailed("Functions", "ZohoCRM.settings.functions.READ", "Analytics results are", err);
   });
 }
 
-// Field Update actions name their target module + field by api_name directly
-// (see get-field-update.html), so unlike functionHits/reportHits this needs
-// no text search, and matching by module.api_name rules out cross-module
-// false positives entirely. Paginated since an org can have 200+ of these.
+//==========// Field updates name their module and field outright, so this needs no
+//==========// text search at all. Paginated: an org can have 200+ of these.
 function scanWorkflowFieldUpdates() {
   S.workflowFieldUpdates = []; S.workflowFieldUpdatesScanned = false;
   $("scan-progress").innerHTML = "Listing CRM workflow field updates&hellip;";
   showLoader("Listing CRM workflow field updates...");
-  function fetchPage(page) {
-    $("scan-progress").innerHTML = "Listing CRM workflow field updates &mdash; page <b>" + page + "</b>&hellip;";
-    showLoader("Listing CRM workflow field updates — page " + page + "...");
-    return crmGet("/settings/automation/field_updates?page=" + page + "&per_page=200").then(function (body) {
-      ((body && body.field_updates) || []).forEach(function (fu) {
-        if (!fu.module || !fu.field) return;
-        S.workflowFieldUpdates.push({
-          id: fu.id, name: fu.name,
-          moduleApiName: fu.module.api_name, moduleId: fu.module.id, fieldApiName: fu.field.api_name,
-          value: fu.value, valueType: fu.type, featureType: fu.feature_type
-        });
-      });
-      var info = body && body.info;
-      if (info && info.more_records) return fetchPage(page + 1);
+  return listAllPages("/settings/automation/field_updates", "field_updates").then(function (updates) {
+    S.workflowFieldUpdates = updates.filter(function (fu) { return fu.module && fu.field; }).map(function (fu) {
+      return {
+        id: fu.id, name: fu.name, moduleApiName: fu.module.api_name, moduleId: fu.module.id,
+        fieldApiName: fu.field.api_name,
+        value: fu.value, valueType: fu.type, featureType: fu.feature_type
+      };
     });
-  }
-  return fetchPage(1).then(function () {
     S.workflowFieldUpdatesScanned = true;
   }).catch(function (err) {
-    showError("Workflow field updates scan failed. Check the \"" + $("conn-crm").value +
-      "\" connection and its ZohoCRM.settings.automation_actions.READ scope.\n" + String(err && err.message || err));
+    scanFailed("Workflow field updates", "ZohoCRM.settings.automation_actions.READ",
+      "other automation matching is", err);
   });
 }
 
-$("btn-cache").onclick = function () {
-  var c = JSON.parse(localStorage.getItem(SCAN_KEY));
+/* **********************************************************************
+ *   Scan_Cache
+ *
+ *   The whole scan result is written to localStorage so reopening the tab
+ *   can skip a re-scan. Both directions walk SCANS, so a new source is
+ *   cached and restored without touching this section.
+ ********************************************************************** */
+
+//==========// One shape serves both the cache and the exported file, so a saved
+//==========// scan and a cached scan restore through exactly the same path.
+var SCAN_FORMAT = "zenaudit-scan-1";
+
+function scanPayload() {
+  var payload = {
+    format: SCAN_FORMAT,
+    //==========// crmZgid keys a scan to its org. localStorage is shared across
+    //==========// every org on crm.zoho.com, and a saved file can travel anywhere,
+    //==========// so both need to say which org they describe.
+    crmZgid: S.crmZgid,
+    at: S.scannedAt, orgId: S.orgId, dc: $("dc").value,
+    tables: S.tables, queryTables: S.queryTables, viewCount: S.viewCount,
+    viewsUnreadable: S.viewsUnreadable,
+    analyticsScanned: S.analyticsScanned, reportsSkippedStale: S.reportsSkippedStale
+  };
+  SCANS.forEach(function (sc) {
+    payload[sc.store] = S[sc.store];
+    payload[sc.flag] = S[sc.flag];
+  });
+  return payload;
+}
+
+function cacheScan() {
+  try {
+    localStorage.setItem(SCAN_KEY, JSON.stringify(scanPayload()));
+    offerCachedScan();
+  } catch (e) { /* best-effort; the file export is the durable route */ }
+}
+
+/* **********************************************************************
+ *   Save_And_Load_A_Scan
+ *
+ *   A full scan of a large org takes minutes and thousands of metered API
+ *   calls, so it should be a file rather than something you re-run. The
+ *   browser cache is convenient but fragile: it is cleared, it is per
+ *   browser, and it has a size limit a big org can exceed. A saved file
+ *   survives all of that, moves between machines, and can be handed to a
+ *   colleague to look at the same data.
+ *
+ *   A loaded file is data, never code: it is parsed as JSON and checked
+ *   for shape before anything reads it. It is also checked against the org
+ *   on screen, because a scan describing a different org would produce
+ *   verdicts that look right and are about someone else's CRM.
+ ********************************************************************** */
+
+//==========// what a scan file has to contain to be worth restoring
+function validateScanFile(obj) {
+  if (!obj || typeof obj !== "object") return "That file does not contain a scan.";
+  if (obj.format && obj.format !== SCAN_FORMAT) {
+    return "That scan was saved by a different version of this widget (" + esc(String(obj.format)) + ").";
+  }
+  if (!Array.isArray(obj.tables) || !Array.isArray(obj.queryTables)) {
+    return "That scan file is missing its Analytics tables.";
+  }
+  //==========// every source has to be an array if it is present at all
+  for (var i = 0; i < SCANS.length; i++) {
+    var store = SCANS[i].store;
+    if (obj[store] != null && !Array.isArray(obj[store])) {
+      return "That scan file has a damaged " + SCANS[i].label + " list.";
+    }
+  }
+  if (!obj.at) return "That scan file has no scan date.";
+  return null;
+}
+
+//==========// a filename that says which org and when, so a folder of these is
+//==========// still readable in six months
+function scanFileName() {
+  var stamp = String(S.scannedAt || "").replace(/[^0-9A-Za-z]+/g, "-").replace(/^-+|-+$/g, "");
+  return "zenaudit-scan-" + (S.crmZgid || "org") + "-" + (stamp || "latest") + ".json";
+}
+
+function scanIsWorthSaving() {
+  return !!(S.scannedAt && (S.tables.length || ranScans().length));
+}
+
+function updateScanFileButtons() {
+  $("btn-export-scan").classList.toggle("hidden", !scanIsWorthSaving());
+}
+
+function exportScan() {
+  if (!scanIsWorthSaving()) return;
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(scanPayload())], { type: "application/json" }));
+  a.download = scanFileName();
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+$("btn-export-scan").onclick = exportScan;
+
+/* **********************************************************************
+ *   Offer_To_Save_After_A_Long_Scan
+ *
+ *   Someone who just waited several minutes should not have to know the
+ *   Save link exists, and should not lose that work to a cleared browser
+ *   cache. The offer is based on how long the scan actually took rather
+ *   than the estimate, so it only ever appears when the wait was real.
+ ********************************************************************** */
+
+var SUGGEST_SAVE_AFTER_SECONDS = 90;
+
+function hideSaveNudge() { $("save-nudge").classList.add("hidden"); }
+
+function maybeSuggestSave() {
+  //==========// nothing to offer for a restore: it is already a file or a cache
+  if (S.importedFrom || !S.lastScanSeconds || !scanIsWorthSaving()) { hideSaveNudge(); return; }
+  if (S.lastScanSeconds < SUGGEST_SAVE_AFTER_SECONDS) { hideSaveNudge(); return; }
+  $("save-nudge-text").innerHTML = "That scan took " + esc(describeDuration(S.lastScanSeconds)) +
+    ". Save it to a file and you can load it straight back later, on any machine, " +
+    "without spending those calls again.";
+  $("save-nudge").classList.remove("hidden");
+}
+
+$("btn-nudge-save").onclick = function () {
+  exportScan();
+  $("save-nudge-text").textContent = "Saved. Load it again any time with \u201cLoad scan from file\u201d.";
+  $("btn-nudge-save").classList.add("hidden");
+  $("btn-nudge-dismiss").textContent = "Close";
+};
+
+$("btn-nudge-dismiss").onclick = hideSaveNudge;
+
+$("btn-import-scan").onclick = function () { $("scan-file").click(); };
+
+$("scan-file").onchange = function () {
+  var file = this.files && this.files[0];
+  //==========// let the same file be picked again after a failed attempt
+  this.value = "";
+  if (!file) return;
+  clearError();
+  showLoader("Reading " + file.name + "…");
+  var reader = new FileReader();
+  reader.onerror = function () {
+    hideLoader();
+    showError("Could not read " + file.name + ".");
+  };
+  reader.onload = function () {
+    hideLoader();
+    var parsed;
+    try {
+      parsed = JSON.parse(reader.result);
+    } catch (e) {
+      showError(file.name + " is not valid JSON, so it is not a saved scan.");
+      return;
+    }
+    var problem = validateScanFile(parsed);
+    if (problem) { showError(problem); return; }
+    restoreScan(parsed);
+    S.importedFrom = file.name;
+    finishScan();
+    //==========// a scan from elsewhere has to say so, every time it is on screen
+    if (parsed.crmZgid && S.crmZgid && parsed.crmZgid !== S.crmZgid) {
+      showError("Loaded " + file.name + ", but it was scanned in a different org. " +
+        "Every verdict below describes that org, not this one.");
+    }
+  };
+  reader.readAsText(file);
+};
+
+function restoreScan(c) {
   S.tables = c.tables; S.queryTables = c.queryTables; S.viewCount = c.viewCount;
+  //==========// older caches predate the analyticsScanned flag; infer it from the data
   S.analyticsScanned = c.analyticsScanned != null ? !!c.analyticsScanned : (c.tables || []).length > 0;
-  S.functions = c.functions || []; S.functionsScanned = !!c.functionsScanned;
-  S.reports = c.reports || []; S.reportsScanned = !!c.reportsScanned;
   S.reportsSkippedStale = c.reportsSkippedStale || 0;
-  S.workflowFieldUpdates = c.workflowFieldUpdates || []; S.workflowFieldUpdatesScanned = !!c.workflowFieldUpdatesScanned;
-  S.workflowRules = c.workflowRules || []; S.workflowRulesScanned = !!c.workflowRulesScanned;
-  S.scoringRules = c.scoringRules || []; S.scoringRulesScanned = !!c.scoringRulesScanned;
-  S.blueprintFields = c.blueprintFields || []; S.blueprintFieldsScanned = !!c.blueprintFieldsScanned;
-  S.webhookActions = c.webhookActions || []; S.webhookActionsScanned = !!c.webhookActionsScanned;
-  S.connectedWorkflowRules = c.connectedWorkflowRules || []; S.connectedWorkflowRulesScanned = !!c.connectedWorkflowRulesScanned;
+  SCANS.forEach(function (sc) {
+    S[sc.store] = c[sc.store] || [];
+    S[sc.flag] = !!c[sc.flag];
+  });
   S.orgId = c.orgId; S.scannedAt = c.at; $("dc").value = c.dc;
+}
+
+//==========// A cache from another org is worse than no cache: the verdicts would
+//==========// look real while describing a different client's data.
+function offerCachedScan() {
+  var c = cachedScanForThisOrg();
+  var b = $("btn-cache");
+  if (!c) { b.classList.add("hidden"); return; }
+  b.classList.remove("hidden");
+  b.textContent = "Use cached scan · " + c.at;
+}
+
+function cachedScanForThisOrg() {
+  var raw = localStorage.getItem(SCAN_KEY);
+  if (!raw) return null;
+  try {
+    var c = JSON.parse(raw);
+    if (!c || !c.crmZgid || !S.crmZgid || c.crmZgid !== S.crmZgid) return null;
+    return c;
+  } catch (e) { return null; }
+}
+
+$("btn-cache").onclick = function () {
+  var c = cachedScanForThisOrg();
+  if (!c) { showError("That cached scan belongs to a different org. Run a fresh scan."); return; }
+  restoreScan(c);
   finishScan();
 };
+
+/* **********************************************************************
+ *   Scan_Summary
+ ********************************************************************** */
+
+function scanStats() {
+  var colCount = S.tables.reduce(function (n, t) { return n + t.columns.length; }, 0);
+  var stats = [
+    "<b>" + S.viewCount + "</b> views",
+    "<b>" + S.tables.length + "</b> " + qty(S.tables.length, "table") + " (" + colCount + " columns)",
+    "<b>" + S.queryTables.length + "</b> query " + qty(S.queryTables.length, "table")
+  ];
+  //==========// an unread table is a hole in every verdict, so it leads the stats
+  if (S.viewsUnreadable) {
+    stats.splice(1, 0, "<b>" + S.viewsUnreadable + "</b> " +
+      qty(S.viewsUnreadable, "table") + " could not be read");
+  }
+  ranScans().forEach(function (sc) {
+    var n = S[sc.store].length;
+    stats.push("<b>" + n + "</b> " + qty(n, sc.unit) +
+      (sc.flag === "reportsScanned" && S.reportsSkippedStale
+        ? " (" + S.reportsSkippedStale + " skipped, not accessed in the past year)" : ""));
+  });
+  return stats;
+}
+
+var LOADER_CAPTION = "making field cleanup safer";
+
+function resetLoaderCaption() {
+  var caption = document.querySelector(".loader-caption");
+  if (caption) caption.textContent = LOADER_CAPTION;
+  $("loader").classList.remove("long-run");
+}
 
 function finishScan() {
   S.scanning = false;
   hideLoader();
-  var colCount = S.tables.reduce(function (n, t) { return n + t.columns.length; }, 0);
-  var stats = [
-    "<b>" + S.viewCount + "</b> views",
-    "<b>" + S.tables.length + "</b> tables (" + colCount + " columns)",
-    "<b>" + S.queryTables.length + "</b> query " + (S.queryTables.length === 1 ? "table" : "tables")
-  ];
-  if (S.functionsScanned) stats.push("<b>" + S.functions.length + "</b> functions");
-  if (S.reportsScanned) {
-    stats.push("<b>" + S.reports.length + "</b> reports" +
-      (S.reportsSkippedStale ? " (" + S.reportsSkippedStale + " skipped, not accessed in the past year)" : ""));
+  resetLoaderCaption();
+  //==========// how long the run really took, which is what decides whether to
+  //==========// suggest saving it
+  if (S.scanStartedAt) {
+    S.lastScanSeconds = Math.round((Date.now() - S.scanStartedAt) / 1000);
+    S.scanStartedAt = null;
   }
-  if (S.workflowFieldUpdatesScanned) stats.push("<b>" + S.workflowFieldUpdates.length + "</b> workflow field updates");
-  if (S.workflowRulesScanned) stats.push("<b>" + S.workflowRules.length + "</b> workflow rules");
-  if (S.scoringRulesScanned) stats.push("<b>" + S.scoringRules.length + "</b> scoring rules");
-  if (S.blueprintFieldsScanned) stats.push("<b>" + S.blueprintFields.length + "</b> blueprints");
-  if (S.webhookActionsScanned) stats.push("<b>" + S.webhookActions.length + "</b> webhooks");
-  if (S.connectedWorkflowRulesScanned) stats.push("<b>" + S.connectedWorkflowRules.length + "</b> connected workflow rules");
+  updateScanFileButtons();
+  var stats = scanStats();
   var p = $("scan-progress");
   p.classList.add("done");
-  p.innerHTML = "<b>Last scan · " + esc(S.scannedAt) + "</b>" +
+  p.innerHTML = "<b>" + (S.importedFrom ? "Loaded scan · " : "Last scan · ") + esc(S.scannedAt) + "</b>" +
     "<span class='scan-stats'>" + stats.join(" · ") + "</span>";
+  if (S.viewsUnreadable) {
+    showError(S.viewsUnreadable + " of " + (S.viewsUnreadable + S.tables.length + S.queryTables.length) +
+      " Analytics tables could not be read, so verdicts below only cover the rest. " +
+      "This is usually Zoho's 60-per-minute metadata limit under load. Re-run the scan to pick up the remainder.");
+  }
   updateScanButton();
+  maybeSuggestSave();
   $("results").classList.remove("hidden");
   $("reverse-audit-card").classList.add("hidden");
   $("setup-card").classList.add("collapsed");

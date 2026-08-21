@@ -1,0 +1,53 @@
+string standalone.Create_Or_Search_Account_Google_Folder(String Account_ID,String Account_Name,String Account_GDrive_ID)
+{
+//==========// Config
+// CRM_GDrive_ID                - CRM API field to stamp the Google Drive folder ID
+// CRM_GDrive_URL               - CRM API field to stamp the folder URL; null = skip
+CRM_GDrive_ID = "GDrive_ID";
+CRM_GDrive_URL = "Shared_Google_Folder";
+External_Link_Field = null;
+Shared_Drive_ID = "0AL-wn0n_Hmi4Uk9PVA";
+Parent_ID = Shared_Drive_ID;
+Result_Map = Map();
+Subfolders = List();
+// Keys:
+//   Name                (required) - folder display name in Google Drive
+//   CRM_Field           (optional) - CRM API field to stamp the folder ID into
+if(isNull(Account_GDrive_ID))
+{
+	CRM_Accounts_Get_Request = invokeurl
+	[
+		url :"https://www.zohoapis.com/crm/v8/Accounts/" + Account_ID
+		type :GET
+		connection:"crm"
+	];
+	Account = CRM_Accounts_Get_Request.get("data").get(0);
+	GD_Call = standalone.Search_Google_Drive_For_Folder(Shared_Drive_ID,Parent_ID,Account_Name,false);
+	Folder_ID = GD_Call.get("folder_id");
+	if(!isNull(Folder_ID))
+	{
+		CRM_Accounts_Update_Map = Map();
+		CRM_Accounts_Update_Map.put("id",Account_ID);
+		CRM_Accounts_Update_Map.put(CRM_GDrive_ID,Folder_ID);
+		if(!isNull(CRM_GDrive_URL))
+		{
+			CRM_Accounts_Update_Map.put(CRM_GDrive_URL,"https://drive.google.com/drive/folders/" + Folder_ID);
+		}
+		for each  Subfolder in Subfolders
+		{
+			Sub_Name = Subfolder.get("Name");
+			Sub_CRM_Field = Subfolder.get("CRM_Field");
+			info "Folder Name: " + Sub_Name;
+		}
+		CRM_Accounts_Data_Map = {"data":{CRM_Accounts_Update_Map}};
+		CRM_Accounts_PUT_Request = invokeurl
+		[
+			url :"https://www.zohoapis.com/crm/v8/Accounts"
+			type :PUT
+			parameters:CRM_Accounts_Data_Map.toString()
+			connection:"crm"
+		];
+	}
+}
+return Result_Map;
+}
