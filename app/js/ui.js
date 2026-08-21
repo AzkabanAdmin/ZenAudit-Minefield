@@ -73,7 +73,7 @@ function chipFor(f) {
   var cat = categoryOf(f);
   var out;
   if (cat === "unchecked") {
-    out = "<span class='chip unchecked'>&mdash;</span>";
+    out = "<span class='chip unchecked'>&ndash;</span>";
   } else if (cat === "na") {
     out = "<span class='chip na' title='No matching column exists in the scanned Analytics workspaces" +
       absenceClause(", and ") + "'>" + naLabel() + "</span>";
@@ -164,7 +164,7 @@ $("btn-check-all").onclick = function () {
   runQueue(S.fields, function (f) {
     return checkField(f).then(renderFieldList);
   }, function (i, n, f) {
-    $("check-progress").innerHTML = "Checking <b>" + i + " / " + n + "</b> &mdash; " + esc(f.label);
+    $("check-progress").innerHTML = "Checking <b>" + i + " / " + n + "</b> &middot; " + esc(f.label);
     showMini("Checking " + i + " / " + n, n ? i / n : null);
   }).then(function () {
     hideMini();

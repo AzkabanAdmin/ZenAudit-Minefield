@@ -655,7 +655,7 @@ function scanAnalytics(targets, filterByFolder) {
         })
         .catch(function () { /* skip unreadable views; surfaced in totals */ });
     }, function (i, n, t) {
-      $("scan-progress").innerHTML = "Reading structure <b>" + i + " / " + n + "</b> &mdash; " + esc(t.view.viewName);
+      $("scan-progress").innerHTML = "Reading structure <b>" + i + " / " + n + "</b> &middot; " + esc(t.view.viewName);
       showLoader("Reading structure " + i + " / " + n, n ? i / n : null);
     });
   });
@@ -730,7 +730,7 @@ function scanFunctions() {
         else failures++;
       }).catch(function () { failures++; });
     }, function (i, n, fn) {
-      $("scan-progress").innerHTML = "Reading function code <b>" + i + " / " + n + "</b> &mdash; " +
+      $("scan-progress").innerHTML = "Reading function code <b>" + i + " / " + n + "</b> &middot; " +
         esc(fn.display_name || fn.name);
       showLoader("Reading function code " + i + " / " + n, n ? i / n : null);
     }).then(function () {

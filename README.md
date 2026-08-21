@@ -76,9 +76,9 @@ Automation matching keys off module **id**, not API name, because different CRM 
 
 ## Verdicts
 
-- **`N` in use** — something depends on this field. The detail panel breaks the number down by source, each with a link out to the exact view, report, rule, or settings page so you can fix it before deleting.
-- **unused** — synced to Analytics, and Zoho's dependency engine reports nothing depending on it.
-- **not synced** / **not in Analytics** — no matching column exists at all, and nothing else references it. Also safe, and usually a dead field.
+- **`N` in use**: something depends on this field. The detail panel breaks the number down by source, each with a link out to the exact view, report, rule, or settings page so you can fix it before deleting.
+- **unused**: synced to Analytics, and Zoho's dependency engine reports nothing depending on it.
+- **not synced** / **not in Analytics**: no matching column exists at all, and nothing else references it. Also safe, and usually a dead field.
 
 ## Using it
 
@@ -92,7 +92,7 @@ Three themes (dark by default, light, and zen) via the header dropdown, persiste
 
 ## One-time org setup
 
-**1. Connections** — Setup > Developer Space > Connections > Create Connection, service **Zoho OAuth**. Authorize each after creating it. Custom link names are fine, just enter them in the widget's settings panel.
+**1. Connections**. Setup > Developer Space > Connections > Create Connection, service **Zoho OAuth**. Authorize each after creating it. Custom link names are fine, just enter them in the widget's settings panel.
 
 | Link name | Scope | Needed for |
 |---|---|---|
@@ -103,7 +103,7 @@ Two connections, that's the whole setup. `ZohoCRM.settings.ALL` is known working
 
 Click any scope chip in the widget to copy it.
 
-**2. Widget** — Setup > Developer Space > Widgets > Create. Type **Web Tab**, hosting **External** pointing at `https://127.0.0.1:5000/app/widget.html` for development, or **Zoho** once packaged.
+**2. Widget**. Setup > Developer Space > Widgets > Create. Type **Web Tab**, hosting **External** pointing at `https://127.0.0.1:5000/app/widget.html` for development, or **Zoho** once packaged.
 
 **3.** Add the widget as a web tab so it appears in the CRM tab bar.
 
