@@ -837,6 +837,10 @@ function scanWorkflowFieldUpdates() {
 
 function cacheScan() {
   var payload = {
+    //==========// crmZgid is what keys the cache to an org. localStorage is shared
+    //==========// across every org on crm.zoho.com, so without it switching orgs
+    //==========// offers you the previous client's scan.
+    crmZgid: S.crmZgid,
     at: S.scannedAt, orgId: S.orgId, dc: $("dc").value,
     tables: S.tables, queryTables: S.queryTables, viewCount: S.viewCount,
     analyticsScanned: S.analyticsScanned, reportsSkippedStale: S.reportsSkippedStale
@@ -845,7 +849,10 @@ function cacheScan() {
     payload[sc.store] = S[sc.store];
     payload[sc.flag] = S[sc.flag];
   });
-  try { localStorage.setItem(SCAN_KEY, JSON.stringify(payload)); } catch (e) { /* best-effort */ }
+  try {
+    localStorage.setItem(SCAN_KEY, JSON.stringify(payload));
+    offerCachedScan();
+  } catch (e) { /* best-effort */ }
 }
 
 function restoreScan(c) {
@@ -860,8 +867,30 @@ function restoreScan(c) {
   S.orgId = c.orgId; S.scannedAt = c.at; $("dc").value = c.dc;
 }
 
+//==========// A cache from another org is worse than no cache: the verdicts would
+//==========// look real while describing a different client's data.
+function offerCachedScan() {
+  var c = cachedScanForThisOrg();
+  var b = $("btn-cache");
+  if (!c) { b.classList.add("hidden"); return; }
+  b.classList.remove("hidden");
+  b.textContent = "Use cached scan · " + c.at;
+}
+
+function cachedScanForThisOrg() {
+  var raw = localStorage.getItem(SCAN_KEY);
+  if (!raw) return null;
+  try {
+    var c = JSON.parse(raw);
+    if (!c || !c.crmZgid || !S.crmZgid || c.crmZgid !== S.crmZgid) return null;
+    return c;
+  } catch (e) { return null; }
+}
+
 $("btn-cache").onclick = function () {
-  restoreScan(JSON.parse(localStorage.getItem(SCAN_KEY)));
+  var c = cachedScanForThisOrg();
+  if (!c) { showError("That cached scan belongs to a different org. Run a fresh scan."); return; }
+  restoreScan(c);
   finishScan();
 };
 

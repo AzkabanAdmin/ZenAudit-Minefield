@@ -13,17 +13,12 @@ ZOHO.embeddedApp.on("PageLoad", function () {
   loadModules();
   showLoader(bootLine);
   loadOrgs().then(endBoot, endBoot); //==========// errors surface in the setup card
-  //==========// the org zgid powers every deep link back into CRM settings
+  //==========// the org zgid powers every deep link back into CRM settings, and
+  //==========// decides whether a cached scan belongs to this org at all
   ZOHO.CRM.CONFIG.getOrgInfo().then(function (resp) {
     try { S.crmZgid = resp.org[0].zgid || null; } catch (e) { /* generic link fallback */ }
+    offerCachedScan();
   }).catch(function () { /* generic link fallback */ });
-  var raw = localStorage.getItem(SCAN_KEY);
-  if (raw) {
-    var c = JSON.parse(raw);
-    var b = $("btn-cache");
-    b.classList.remove("hidden");
-    b.textContent = "Use cached scan · " + c.at;
-  }
 });
 //==========// the mini loader reuses the same otter artwork
 $("mini-otter").appendChild(document.querySelector(".otter-wrap svg").cloneNode(true));
