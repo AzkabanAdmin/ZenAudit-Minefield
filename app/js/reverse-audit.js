@@ -183,29 +183,59 @@ function orphanImpact(c, table) {
     dependentCards(c.dep, table.wsName, table.wsId);
 }
 
-//==========// Both routes out, in the order that loses least. Rebuilding the field
-//==========// is the one confirmed against a live org: the sync recovered and every
-//==========// dependent view survived untouched. Zoho's own advice is the second one,
-//==========// which works but throws away whatever those views were showing.
+//==========// Analytics column type to the CRM field type to rebuild as. Once the CRM
+//==========// field is gone the Analytics column is the only surviving record of what
+//==========// it was, so the type is read off the column. Analytics flattens several
+//==========// CRM types into one, so where a column type maps to more than one field
+//==========// type the alternatives are named rather than silently guessed at.
 //==========//
-//==========// Type is a hint rather than a rule here. Matching the name is what
-//==========// restores the sync; matching the type is what keeps formulas and query
-//==========// casts working, so the Analytics type is offered as the clue to aim at.
-function orphanFix(c, table, module) {
-  var field = "<b>" + esc(c.columnName) + "</b>";
-  var where = " on " + esc(module.plural_label) + " in CRM";
-  var type = c.dataType ? " It syncs as <b>" + esc(c.dataType) +
-    "</b>, so match the original field's type to keep formulas and queries working." : "";
-  if (c.dep && dependentCount(c.dep)) {
-    return "<p class='section-note'><b>To fix:</b> rebuild " + field + where +
-      " under the same name, then re-sync. That clears the sync failure and leaves " +
-      "everything above intact. Zoho's own advice is to delete or edit those items " +
-      "instead, which also works but loses what they showed." + type + "</p>";
-  }
-  return "<p class='section-note'><b>To fix:</b> rebuild " + field + where +
-    " under the same name and re-sync, or let the sync drop the column. Nothing is " +
-    "built on it, so dropping it costs only the column itself." + type + "</p>";
+//==========// This is the whole set: 13 column types across the 3,669 columns of a
+//==========// large, messy org, so it is unlikely to meet something new.
+var CRM_TYPE_FOR_COLUMN = {
+  plain_text: { as: "Single Line", or: "Pick List, Phone or Multi-Select" },
+  number: { as: "Number", or: "Long Integer or a Lookup to another module" },
+  positive_number: { as: "Number", or: "Long Integer or Auto-Number" },
+  decimal_number: { as: "Decimal" },
+  currency: { as: "Currency" },
+  percentage: { as: "Percent" },
+  date: { as: "Date", or: "Date/Time" },
+  multi_line_text: { as: "Multi-Line" },
+  yes_no_decision: { as: "Checkbox" },
+  url: { as: "URL" },
+  e_mail: { as: "Email" },
+  auto_number: { as: "Auto-Number" },
+  geo_column: { as: "Address", or: "one component of an Address field" }
+};
+
+function crmTypeForColumn(dataType) {
+  return CRM_TYPE_FOR_COLUMN[norm(dataType)] || null;
 }
+
+//==========// Both routes out, in the order that loses least. Rebuilding is the one
+//==========// confirmed against a live org: the sync recovered and the dependent query
+//==========// survived untouched. Clearing the dependents is Zoho's own advice, which
+//==========// works but discards whatever they were showing. Matching the name is what
+//==========// restores the sync; matching the type is what keeps formulas and query
+//==========// casts from breaking quietly afterwards.
+function orphanFix(c, table, module) {
+  var name = "<b>" + esc(c.columnName) + "</b>";
+  var t = crmTypeForColumn(c.dataType);
+  var rebuild = "rebuild it on <b>" + esc(module.plural_label) + "</b> with the exact name " +
+    name + (t ? " as a <b>" + t.as + "</b> field" : "") + ", then re-sync";
+  //==========// only where the column type genuinely cannot tell them apart
+  var caveat = (t && t.or) ? " Analytics stores this as <b>" + esc(c.dataType) +
+    "</b>, which also covers " + t.or + ", so check which it was." : "";
+  var n = c.dep ? dependentCount(c.dep) : 0;
+  if (n) {
+    return "<p class='section-note'><b>To fix, either:</b><br>" +
+      "&bull; remove " + name + " from the " + n + qty(n, " item") + " above, which is " +
+      "Zoho's own advice and loses what they showed<br>" +
+      "&bull; or " + rebuild + ", which keeps them." + caveat + "</p>";
+  }
+  return "<p class='section-note'><b>To fix:</b> " + rebuild +
+    ". Or let the sync drop the column, since nothing is built on it." + caveat + "</p>";
+}
+
 
 function renderReverseAudit(verified) {
   var box = $("reverse-audit-results");

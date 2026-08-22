@@ -203,6 +203,35 @@ S.modules = [{ api_name: "Leads", id: "1", plural_label: "Leads", singular_label
   check("the export is offered", el("btn-reverse-audit-export")._c.has("hidden"), false);
 
   /* **********************************************************************
+   *   The_Report_Says_What_To_Do_About_It
+   *
+   *   Both routes Zoho itself offers, but concrete: which items to clear,
+   *   or the exact name and field type to rebuild. The type is derived
+   *   from the Analytics column, which is the only record of what the
+   *   field was once CRM has lost it.
+   ********************************************************************** */
+
+  check("it names the exact field to rebuild",
+    html.indexOf("with the exact name <b>Retired Score</b>") >= 0, true);
+  check("and the CRM type to rebuild it as, read off the column",
+    html.indexOf("as a <b>Number</b> field") >= 0, true);
+  check("and offers clearing the dependents as the alternative",
+    html.indexOf("remove <b>Retired Score</b> from the 1 item above") >= 0, true);
+  check("and admits where the column type cannot tell field types apart",
+    html.indexOf("also covers Long Integer") >= 0, true);
+
+  //==========// every column type a 3,669 column scan of a large org produced, so an
+  //==========// orphan is never reported without a type to rebuild it as
+  const REAL_COLUMN_TYPES = ["Plain Text", "Number", "Date", "Currency",
+    "Decimal Number", "Multi Line Text", "Yes/No Decision", "Positive Number",
+    "URL", "Geo Column", "Percentage", "E-Mail", "Auto Number"];
+  check("every Analytics column type maps to a CRM field type",
+    REAL_COLUMN_TYPES.filter((t) => !sandbox.crmTypeForColumn(t)), []);
+  check("and an unrecognised one degrades rather than throwing",
+    sandbox.crmTypeForColumn("Some Future Type"), null);
+
+
+  /* **********************************************************************
    *   A_Healthy_Org_Reports_Nothing_And_Spends_Nothing
    ********************************************************************** */
 
