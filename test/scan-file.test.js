@@ -60,7 +60,7 @@ const sandbox = {
 };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
-for (const f of ["state.js", "helpers.js", "sources.js", "loader.js", "scan.js"]) {
+for (const f of ["state.js", "helpers.js", "sources.js", "loader.js", "scan.js", "fields.js"]) {
   vm.runInContext(fs.readFileSync(path.join(APP, f), "utf8"), sandbox, { filename: f });
 }
 
@@ -300,5 +300,130 @@ check("a rescan drops the dependents it paid for", S.depCache, {});
 check("and the module field lists, so a rebuilt field is seen", S.moduleFieldsCache, {});
 check("and the tables it is about to replace", S.tables, []);
 
-console.log(failures ? "\n" + failures + " FAILURE(S)" : "\nALL SCAN FILE CHECKS PASSED");
-process.exit(failures ? 1 : 0);
+/* **********************************************************************
+ *   The_File_Shape_Is_Pinned
+ *
+ *   A saved scan is the only artefact of this app that outlives the
+ *   session, and it can be loaded on another machine months later. So the
+ *   key set is spelled out here rather than left to whatever scanPayload
+ *   happens to return. Adding a source to SCANS legitimately adds two keys
+ *   and this check will say which; anything else drifting is a bug.
+ ********************************************************************** */
+
+loadFixtureIntoState();
+check("the saved file holds exactly these keys", Object.keys(sandbox.scanPayload()).sort(), [
+  "analyticsScanned", "at", "blueprintFields", "blueprintFieldsScanned",
+  "connectedWorkflowRules", "connectedWorkflowRulesScanned", "crmZgid", "dc",
+  "depCache", "format", "functions", "functionsScanned", "orgId", "queryTables",
+  "reports", "reportsScanned", "reportsSkippedStale", "scoringRules",
+  "scoringRulesScanned", "tables", "viewCount", "viewsUnreadable", "webhookActions",
+  "webhookActionsScanned", "workflowFieldUpdates", "workflowFieldUpdatesScanned",
+  "workflowRules", "workflowRulesScanned",
+]);
+
+//==========// Deliberately absent. CRM field lists are read live from the settings
+//==========// endpoint on every scan, because a field parked off a layout, renamed or
+//==========// deleted since the file was written must not be answered from it. Saving
+//==========// them would be the same stale-cache bug the app already had once.
+check("the field lists are not saved into the file",
+  Object.keys(sandbox.scanPayload()).indexOf("moduleFieldsCache"), -1);
+
+/* **********************************************************************
+ *   A_Loaded_Scan_Produces_The_Same_Verdicts
+ *
+ *   The round trip above proves the bytes survive. This proves the app
+ *   behaves the same on the far side of one, which is the property anyone
+ *   loading a saved scan actually depends on.
+ ********************************************************************** */
+
+//==========// any dependents fetch here would mean the file failed to carry them
+let depFetches = 0;
+sandbox.analyticsGet = function () {
+  depFetches++;
+  return Promise.resolve({ data: { views: [], customFormulas: [], aggregateFormulas: [] } });
+};
+
+(async function () {
+  loadFixtureIntoState();
+  S.modules = [{ api_name: "Deals", id: "M1", plural_label: "Deals", singular_label: "Deal" }];
+  el("module-pick").value = "Deals";
+
+  const stage = { api_name: "Stage", label: "Stage", type: "picklist", custom: false };
+
+  function verdictOf(r) {
+    return {
+      hits: sandbox.hitCount(r),
+      category: sandbox.categoryOf(stage),
+      notSynced: r.notSynced,
+      analytics: sandbox.analyticsHitCount(r),
+      columns: r.columns.length,
+      unchecked: sandbox.uncheckedCount(r),
+    };
+  }
+
+  S.results = {};
+  const before = verdictOf(await sandbox.checkField(stage));
+  check("the field has a real verdict to compare against", before.analytics > 0, true);
+  check("and it needed no network, the scan carried it", depFetches, 0);
+
+  //==========// save it, then wipe state the way a fresh browser would
+  const file = JSON.parse(JSON.stringify(sandbox.scanPayload()));
+  S.tables = []; S.queryTables = []; S.functions = []; S.workflowRules = [];
+  S.depCache = {}; S.results = {}; S.scannedAt = null;
+  S.functionsScanned = false; S.workflowRulesScanned = false;
+
+  check("the saved file validates", sandbox.validateScanFile(file), null);
+  sandbox.restoreScan(file);
+
+  //==========// forget the answers, keep the data, so this is a genuine re-check
+  S.results = {};
+  const after = verdictOf(await sandbox.checkField(stage));
+
+  check("a loaded scan gives the identical verdict", after, before);
+  check("and still bought no dependents, they came from the file", depFetches, 0);
+
+  //==========// the same holds for a field the scan says nothing about
+  const ghost = { api_name: "Ghost_Field", label: "Ghost Field", type: "text", custom: true };
+  const ghostResult = await sandbox.checkField(ghost);
+  check("a field absent from the loaded scan reads as not synced", ghostResult.notSynced, true);
+
+  /* **********************************************************************
+   *   A_Real_File_From_An_Older_Version_Still_Loads
+   *
+   *   Saved files outlive the code that wrote them. This one is a genuine
+   *   233 table export taken before format, crmZgid and depCache existed,
+   *   which is exactly the file someone rediscovers in a Downloads folder
+   *   months later. It has to load rather than be refused.
+   ********************************************************************** */
+
+  const REAL = path.join(__dirname, "fixtures", "scan-cache.json");
+  if (!fs.existsSync(REAL)) {
+    console.log("SKIP real file check: test/fixtures/scan-cache.json is not present");
+  } else {
+    const old = JSON.parse(fs.readFileSync(REAL, "utf8"));
+    check("a file predating the format marker has none", old.format, undefined);
+    check("nor the org key", old.crmZgid, undefined);
+    check("nor any saved dependents", old.depCache, undefined);
+
+    check("and it is still accepted", sandbox.validateScanFile(old), null);
+
+    sandbox.restoreScan(old);
+    check("its tables restore in full", S.tables.length, old.tables.length);
+    check("that is a substantial scan", S.tables.length > 200, true);
+    check("its columns come with them",
+      S.tables.reduce((n, t) => n + (t.columns || []).length, 0) > 3000, true);
+    check("its Deluge source restores", S.functions.length, old.functions.length);
+    check("the missing dependents restore as an empty cache", S.depCache, {});
+    check("and the scan date survives", S.scannedAt, old.at);
+
+    //==========// re-saving an old file brings it up to the current format rather
+    //==========// than writing the old shape back out
+    const resavedOld = sandbox.scanPayload();
+    check("re-saving it stamps the current format", resavedOld.format, "zenaudit-scan-1");
+    check("and the upgraded file validates", sandbox.validateScanFile(resavedOld), null);
+  }
+
+
+  console.log(failures ? "\n" + failures + " FAILURE(S)" : "\nALL SCAN FILE CHECKS PASSED");
+  process.exit(failures ? 1 : 0);
+})().catch((e) => { console.error("HARNESS ERROR", e); process.exit(1); });
