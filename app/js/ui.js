@@ -131,6 +131,11 @@ function openField(f) {
     renderFieldList();
     renderDetail(f);
     persistDependents();
+  }).catch(function (err) {
+    //==========// silence here reads as a hang, and the pane is the only place the
+    //==========// reader is looking
+    $("detail-body").innerHTML = "<p class='error'>Could not show this field: " +
+      esc(String(err && err.message || err)) + "</p>";
   });
 }
 
@@ -186,6 +191,13 @@ $("btn-check-all").onclick = function () {
     renderFieldList();
     //==========// a module's worth of metered calls, kept so this is a one-time cost
     persistDependents();
+  }).catch(function (err) {
+    //==========// without this the button stays disabled and the loader never lifts
+    hideMini();
+    S.checking = false;
+    $("btn-check-all").disabled = false;
+    $("check-progress").innerHTML = "<span class='error'>Stopped: " +
+      esc(String(err && err.message || err)) + "</span>";
   });
 };
 
@@ -349,8 +361,13 @@ function dependentCards(dep, wsName, wsId) {
 }
 
 //==========// Analytics results come from the dependents API, so they render from
-//==========// the matched columns rather than from a SOURCES entry.
-function analyticsSections(r) {
+//==========// the matched columns rather than from a SOURCES entry. The field comes in
+//==========// too, because the "check them anyway" button has to name it: reading it
+//==========// from an enclosing scope that does not exist threw a ReferenceError, and
+//==========// with nothing catching it the pane sat on "Checking dependencies" for
+//==========// good. It fired for any field whose name repeats in other tables, which
+//==========// is every Created By and Description in the org.
+function analyticsSections(r, f) {
   var html = "<div id='section-analytics'>";
   r.columns.forEach(function (c) {
     var where = c.tableName + (c.primary ? "" : " (different table, same column name)");
@@ -369,7 +386,8 @@ function analyticsSections(r) {
     var names = r.unchecked.slice(0, 4).map(function (u) { return esc(u.tableName); }).join(", ");
     var more = r.unchecked.length > 4 ? " and " + (r.unchecked.length - 4) + " more" : "";
     html += "<p class='section-note'>" + r.unchecked.length + " same-named " +
-      qty(r.unchecked.length, "column") + " in tables outside this module were not checked: " +
+      qty(r.unchecked.length, "column") + " in tables outside this module " +
+      (r.unchecked.length === 1 ? "was" : "were") + " not checked: " +
       names + more + ". These are usually a coincidence, since every synced table has its " +
       "own Created Time and Owner. <button class='link' data-elsewhere='" + esc(f.api_name) +
       "'>Check them anyway</button></p>";
@@ -386,7 +404,7 @@ function analyticsSections(r) {
 
 function renderDetail(f) {
   var r = S.results[f.api_name];
-  var html = verdictBanner(f, r, hitCount(r)) + analyticsSections(r);
+  var html = verdictBanner(f, r, hitCount(r)) + analyticsSections(r, f);
   SOURCES.forEach(function (src) {
     var hits = hitsFor(r, src);
     if (!hits.length) return;

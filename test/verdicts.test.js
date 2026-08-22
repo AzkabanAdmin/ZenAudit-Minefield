@@ -136,10 +136,23 @@ S.depCache = {
   C_DEAD: { views: [], customFormulas: [], aggregateFormulas: [] },
 };
 
+//==========// A column of the same name in a table outside the module, which is what
+//==========// makes the detail pane offer "check them anyway". That branch used to
+//==========// throw: analyticsSections read the field from a scope it never had, and
+//==========// with nothing catching it the pane sat on "Checking dependencies" for
+//==========// good. It fired for every Created By and Description in a real org.
+S.tables[0].columns.push({ columnId: "C_OWNER", columnName: "Record Owner" });
+S.tables.push({
+  wsId: "W1", wsName: "Sales WS", viewId: "V2", viewName: "Support Tickets",
+  columns: [{ columnId: "C_OWNER2", columnName: "Record Owner" }],
+});
+S.depCache.C_OWNER = { views: [], customFormulas: [], aggregateFormulas: [] };
+
 S.fields = [
   { api_name: "Stage", label: "Stage", type: "picklist", custom: false },
   { api_name: "Dead Field", label: "Dead Field", type: "text", custom: true },
   { api_name: "Ghost_Field", label: "Ghost Field", type: "text", custom: true },
+  { api_name: "Record_Owner", label: "Record Owner", type: "ownerlookup", custom: false },
 ];
 
 /* **********************************************************************
@@ -199,6 +212,19 @@ Promise.all(S.fields.map((f) => sandbox.checkField(f))).then(() => {
 
   sandbox.renderDetail(S.fields[1]);
   report("clear verdict", $el("detail-body").innerHTML.match(/<div class='verdict clear'>[\s\S]*?<small>/)[0].replace(/\s+/g, " "));
+
+  //==========// the branch that used to throw a ReferenceError and hang the pane
+  const owner = S.results["Record_Owner"];
+  check("the other table's column is left unchecked, not discarded",
+    sandbox.uncheckedCount(owner), 1);
+  sandbox.renderDetail(S.fields[3]);
+  const ownerHtml = $el("detail-body").innerHTML;
+  check("rendering a field with unchecked columns produces a pane",
+    ownerHtml.length > 0, true);
+  check("the unchecked column is disclosed",
+    ownerHtml.indexOf("in tables outside this module was not checked") >= 0, true);
+  check("and the check-them-anyway button names the field it belongs to",
+    ownerHtml.indexOf("data-elsewhere='Record_Owner'") >= 0, true);
 
   console.log("\n--- csv ---");
   report("usageList(Stage)", sandbox.usageList(stage).join(" | "));

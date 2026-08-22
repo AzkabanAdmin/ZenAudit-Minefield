@@ -205,8 +205,20 @@ function listOnePage(path, key) {
   cb.onchange = function () {
     cb.closest(".src-tile").classList.toggle("on", cb.checked);
     updateScanButton();
+    refreshPlanForToggles();
   };
 });
+
+//==========// The plan is a listing taken at one moment, but the switches move after
+//==========// it, and a plan that still counts a source you just switched off is
+//==========// telling you about a scan you are not going to run. Re-listing on every
+//==========// toggle would spend calls to learn what the stored plan already knows, so
+//==========// the stored plan is re-rendered against the switches instead.
+function refreshPlanForToggles() {
+  //==========// the reverse audit does not use the plan; it has its own folder pills
+  if ($("include-reverse-audit").checked) { $("plan").classList.add("hidden"); return; }
+  if (S.plan) renderPlan();
+}
 
 //==========// The reverse audit runs the opposite direction and runs standalone,
 //==========// so selecting it locks out the normal sources instead of combining.
@@ -235,6 +247,7 @@ $("include-reverse-audit").onchange = function () {
   cb.closest(".src-tile").classList.toggle("on", cb.checked);
   updateScanButton();
   updateSelectorVisibility();
+  refreshPlanForToggles();
 };
 
 //==========// reads "Scan 2 sources - 4 workspaces", disabled until a source is ready
@@ -347,7 +360,7 @@ function planReports() {
 function cachePlan() {
   if (!S.plan) return;
   var payload = {
-    crmZgid: S.crmZgid, at: new Date().toLocaleString(),
+    crmZgid: S.crmZgid, at: S.plan.at || new Date().toLocaleString(),
     analytics: S.plan.analytics.map(function (r) {
       return { wsId: r.wsId, wsName: r.wsName, folderId: r.folderId,
         folderName: r.folderName, tables: r.tables };
@@ -397,7 +410,11 @@ function runPlan(quietly) {
   return planAnalytics().then(function (analytics) {
     return planCrm().then(function (crm) {
       return planReports().then(function (reports) {
-        S.plan = { analytics: analytics, crm: crm, reports: reports };
+        //==========// stamped here rather than in cachePlan so a freshly listed plan
+        //==========// can say when it was listed, and so the time on screen is the
+        //==========// same one that gets stored
+        S.plan = { analytics: analytics, crm: crm, reports: reports,
+          at: new Date().toLocaleString() };
         cachePlan();
         renderPlan();
       });
@@ -423,11 +440,17 @@ $("btn-plan").onclick = function () {
 function planSeconds() {
   if (!S.plan) return null;
   var secs = 0;
-  S.plan.analytics.forEach(function (r) {
-    if (!r.folder || r.folder.selected) secs += estimateSeconds(r.tables, LIMITS.analytics);
-  });
-  S.plan.crm.forEach(function (r) { secs += estimateSeconds(r.calls, LIMITS.crm); });
-  if (S.plan.reports) secs += estimateSeconds(S.plan.reports.calls, LIMITS.crm);
+  if ($("include-an").checked) {
+    S.plan.analytics.forEach(function (r) {
+      if (!r.folder || r.folder.selected) secs += estimateSeconds(r.tables, LIMITS.analytics);
+    });
+  }
+  if ($("include-crm").checked) {
+    S.plan.crm.forEach(function (r) { secs += estimateSeconds(r.calls, LIMITS.crm); });
+  }
+  if ($("include-reports").checked && S.plan.reports) {
+    secs += estimateSeconds(S.plan.reports.calls, LIMITS.crm);
+  }
   return secs;
 }
 
@@ -451,19 +474,22 @@ function renderPlan() {
   var plan = S.plan;
   if (!plan) return;
   var html = "";
+  var wantAn = $("include-an").checked;
+  var wantCrm = $("include-crm").checked;
+  var wantReports = $("include-reports").checked;
 
-  //==========// bars are relative to the most expensive row in the whole plan
+  //==========// bars are relative to the most expensive row that will actually run
   var peak = 0;
-  plan.analytics.forEach(function (r) {
+  if (wantAn) plan.analytics.forEach(function (r) {
     peak = Math.max(peak, estimateSeconds(r.tables, LIMITS.analytics));
   });
-  plan.crm.forEach(function (r) {
+  if (wantCrm) plan.crm.forEach(function (r) {
     peak = Math.max(peak, estimateSeconds(r.calls || 0, LIMITS.crm));
   });
-  if (plan.reports) peak = Math.max(peak, estimateSeconds(plan.reports.calls, LIMITS.crm));
+  if (wantReports && plan.reports) peak = Math.max(peak, estimateSeconds(plan.reports.calls, LIMITS.crm));
   function share(secs) { return peak > 0 ? secs / peak : 0; }
 
-  if (plan.analytics.length) {
+  if (wantAn && plan.analytics.length) {
     html += "<div class='plan-group'>Zoho Analytics tables</div>";
     plan.analytics.forEach(function (r, i) {
       var on = !r.folder || r.folder.selected;
@@ -476,7 +502,7 @@ function renderPlan() {
     });
   }
 
-  if (plan.crm.length) {
+  if (wantCrm && plan.crm.length) {
     html += "<div class='plan-group'>CRM functions and automations</div>";
     plan.crm.forEach(function (r) {
       var detail = r.items == null ? "could not list" : r.items + " found";
@@ -485,13 +511,28 @@ function renderPlan() {
     });
   }
 
-  if (plan.reports) {
+  if (wantReports && plan.reports) {
     html += "<div class='plan-group'>CRM reports</div>";
     var rsecs = estimateSeconds(plan.reports.calls, LIMITS.crm);
     html += planRow("reports to read",
       plan.reports.items + " recent" +
       (plan.reports.skipped ? ", " + plan.reports.skipped + " stale and skipped" : ""),
       rsecs, "", share(rsecs));
+  }
+
+  //==========// A source switched on since the listing has no rows to show. Leaving
+  //==========// it silently out would understate the scan, which is the one thing this
+  //==========// panel exists to get right.
+  var unlisted = [];
+  if (wantAn && !plan.analytics.length) unlisted.push("Zoho Analytics");
+  if (wantCrm && !plan.crm.length) unlisted.push("CRM functions and automations");
+  if (wantReports && !plan.reports) unlisted.push("CRM reports");
+  if (unlisted.length) {
+    var one = unlisted.length === 1;
+    html += "<p class='section-note'>" + esc(joinPhrases(unlisted, "and")) +
+      (one ? " was" : " were") + " switched on after this listing was taken, so " +
+      (one ? "it is" : "they are") + " not counted above. Re-check scan size to include " +
+      (one ? "it" : "them") + ".</p>";
   }
 
   $("plan-body").innerHTML = html || "<p class='section-note'>Nothing selected to scan.</p>";
