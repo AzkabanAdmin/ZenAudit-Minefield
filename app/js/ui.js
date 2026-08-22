@@ -148,8 +148,11 @@ function renderFieldList() {
     //==========// a row is an interactive control, so it needs a role and a tab stop
     row.setAttribute("role", "listitem");
     row.setAttribute("tabindex", "0");
+    //==========// a field on no layout is worth flagging: it is invisible in CRM and
+    //==========// so the likeliest thing to be deleted without a second thought
     row.innerHTML = "<div class='fname'>" + esc(f.label) +
       "<small>" + esc(f.api_name) + " &middot; " + esc(f.type) + (f.custom ? " &middot; custom" : "") +
+      (f.offLayout ? " &middot; off layout" : "") +
       "</small></div>" + chipFor(f);
     row.onclick = function () { openField(f); };
     row.onkeydown = function (e) {
@@ -315,6 +318,36 @@ function verdictBanner(f, r, n) {
     absenceClause(", and ") + uncheckedClause(r) + ". Scope: " + scope + ".</small></div>";
 }
 
+function dependentCount(dep) {
+  return dep.views.length + dep.customFormulas.length + dep.aggregateFormulas.length;
+}
+
+//==========// One column's dependents as cards. Shared by the forward check and the
+//==========// reverse audit, which ask the same question from opposite directions.
+function dependentCards(dep, wsName, wsId) {
+  //==========// dashboard KPI widgets arrive as bare numeric ids, so they are
+  //==========// collapsed into a count rather than shown as meaningless rows
+  var named = dep.views.filter(function (v) {
+    return !/widget/i.test(String(v.reportType || "")) && !/^\d+$/.test(String(v.viewName || ""));
+  });
+  var widgetCount = dep.views.length - named.length;
+  var html = named.map(function (v) {
+    return usageCard(v.reportType || "view", v.viewName, wsName, viewLink(wsId, v.viewId), "");
+  }).join("");
+  if (widgetCount > 0) {
+    html += "<p class='section-note'>Plus " + widgetCount + qty(widgetCount, " dashboard KPI widget") +
+      " built on this column (unnamed components inside dashboards).</p>";
+  }
+  html += dep.customFormulas.map(function (cf) {
+    return usageCard("formula column", cf.columnName, wsName, null, "");
+  }).join("");
+  html += dep.aggregateFormulas.map(function (af) {
+    return usageCard("aggregate formula", af.formulaName + " (in " + af.parentViewName + ")",
+      wsName, af.parentViewId ? viewLink(wsId, af.parentViewId) : null, "");
+  }).join("");
+  return html;
+}
+
 //==========// Analytics results come from the dependents API, so they render from
 //==========// the matched columns rather than from a SOURCES entry.
 function analyticsSections(r) {
@@ -326,29 +359,10 @@ function analyticsSections(r) {
         "<p class='section-note'>Could not read dependents for this column.</p>";
       return;
     }
-    var total = c.dep.views.length + c.dep.customFormulas.length + c.dep.aggregateFormulas.length;
+    var total = dependentCount(c.dep);
     if (!total) return;
     html += groupHeading("Column &ldquo;" + esc(c.columnName) + "&rdquo; in " + esc(where), total, "item");
-    //==========// dashboard KPI widgets arrive as bare numeric ids, so they are
-    //==========// collapsed into a count rather than shown as meaningless rows
-    var named = c.dep.views.filter(function (v) {
-      return !/widget/i.test(String(v.reportType || "")) && !/^\d+$/.test(String(v.viewName || ""));
-    });
-    var widgetCount = c.dep.views.length - named.length;
-    html += named.map(function (v) {
-      return usageCard(v.reportType || "view", v.viewName, c.wsName, viewLink(c.wsId, v.viewId), "");
-    }).join("");
-    if (widgetCount > 0) {
-      html += "<p class='section-note'>Plus " + widgetCount + qty(widgetCount, " dashboard KPI widget") +
-        " built on this column (unnamed components inside dashboards).</p>";
-    }
-    html += c.dep.customFormulas.map(function (cf) {
-      return usageCard("formula column", cf.columnName, c.wsName, null, "");
-    }).join("");
-    html += c.dep.aggregateFormulas.map(function (af) {
-      return usageCard("aggregate formula", af.formulaName + " (in " + af.parentViewName + ")",
-        c.wsName, af.parentViewId ? viewLink(c.wsId, af.parentViewId) : null, "");
-    }).join("");
+    html += dependentCards(c.dep, c.wsName, c.wsId);
   });
   //==========// disclosed, with a way to spend the calls if it matters for this field
   if (uncheckedCount(r)) {

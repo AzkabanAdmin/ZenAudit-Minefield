@@ -67,7 +67,9 @@ var S = {
   sdkReady: false,
   filter: "all",
   crmZgid: null,
-  moduleFieldsCache: {},   // module api_name -> [{label, api_name}], for the reverse audit
+  //==========// module api_name -> field list from the CRM settings endpoint, shared
+  //==========// by the forward check and the reverse audit. See fetchModuleFields.
+  moduleFieldsCache: {},
   reverseAuditResults: []  // [{table, module, unmatched}], see reverse-audit.js
 };
 var SCAN_KEY = "fieldcheck.scan.v3";

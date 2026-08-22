@@ -7,8 +7,19 @@
 /*
  *   The opposite direction of the main field check. Instead of asking
  *   whether a CRM field has a matching Analytics column, this asks whether
- *   an Analytics column still has a matching CRM field, surfacing columns
- *   left behind by a renamed or deleted field.
+ *   an Analytics column still has a matching CRM field.
+ *
+ *   For when a sync has broken and nobody knows which field did it: find
+ *   the columns with nothing behind them, then spend a metered call on each
+ *   to report what in Analytics is built on it. Naming the damage is the
+ *   job; repairing it is the user's call and not something a read-only
+ *   widget should attempt.
+ *
+ *   A false alarm here is worse than silence, because it sends someone
+ *   hunting a break that never happened. Every column reported has
+ *   survived a field list that includes fields on no layout, all three
+ *   names a relabelled field answers to, and the sync's own bookkeeping
+ *   columns. See test/reverse-audit.test.js, which pins each of those.
  *
  *   Read-only: it never touches S.results, checkField, or any verdict.
  */
@@ -28,15 +39,11 @@ function matchModuleForTable(table) {
   return contains.length === 1 ? contains[0] : null;
 }
 
+//==========// Shared with the forward check, so both directions agree on what exists.
+//==========// Crucially it includes fields that sit on no layout, which the SDK's
+//==========// getFields omits and which used to read here as deleted fields.
 function getModuleFields(mod) {
-  if (S.moduleFieldsCache[mod.api_name]) return Promise.resolve(S.moduleFieldsCache[mod.api_name]);
-  return ZOHO.CRM.META.getFields({ Entity: mod.api_name }).then(function (resp) {
-    var fields = (resp.fields || []).map(function (f) {
-      return { label: f.field_label, api_name: f.api_name };
-    });
-    S.moduleFieldsCache[mod.api_name] = fields;
-    return fields;
-  });
+  return fetchModuleFields(mod.api_name);
 }
 
 //==========// A formula column's dataType still reads as its output type, so the
@@ -46,11 +53,17 @@ function isFormulaColumn(c) {
   return !!(c.formula && c.formula.trim());
 }
 
-//==========// Analytics adds its own "Id" and "<Module> Owner Name" columns to every
-//==========// synced module. Neither is meant to have a CRM field behind it.
+//==========// Columns the sync creates for itself, which no field list will ever
+//==========// contain. "Id" and "<Module> Owner Name" are its own keys. The conversion
+//==========// columns come from the $converted and $converted_detail record properties
+//==========// rather than from the module's fields, so they are not fields at all.
+var SYNC_OWNED_COLUMNS = {
+  id: 1, is_converted: 1, converted_date_time: 1, converted_from_lead: 1
+};
+
 function isAlwaysIgnoredColumn(c) {
   var n = norm(c.columnName);
-  return n === "id" || /_owner_name$/.test(n);
+  return !!SYNC_OWNED_COLUMNS[n] || /_owner_name$/.test(n);
 }
 
 function auditableColumns(table) {
@@ -60,10 +73,30 @@ function auditableColumns(table) {
 function unmatchedColumns(table, fields) {
   var wanted = {};
   fields.forEach(function (f) {
-    wanted[norm(f.label)] = 1;
-    wanted[norm(f.api_name)] = 1;
+    [f.label, f.display, f.api_name].forEach(function (n) {
+      var k = norm(n);
+      if (k) wanted[k] = 1;
+    });
   });
   return auditableColumns(table).filter(function (c) { return !wanted[norm(c.columnName)]; });
+}
+
+//==========// Only now, on the few columns that really have nothing behind them, is it
+//==========// worth a metered call each to find out what they take down. A healthy org
+//==========// has no orphans, so this usually costs nothing at all.
+function loadOrphanDependents(verified) {
+  var orphans = [];
+  verified.forEach(function (v) {
+    v.unmatched.forEach(function (c) { orphans.push({ table: v.table, col: c }); });
+  });
+  if (!orphans.length) return Promise.resolve();
+  return runQueue(orphans, function (o) {
+    return getDependents(o).then(function (dep) { o.col.dep = dep; })
+      .catch(function () { o.col.depError = true; });
+  }, function (i, n) {
+    $("scan-progress").innerHTML = "Checking what depends on unmatched columns <b>" + i + " / " + n + "</b>";
+    showLoader("Checking what depends on unmatched columns " + i + " / " + n, n ? i / n : null);
+  });
 }
 
 //==========// Names alone are not a reliable disambiguator: one workspace can hold
@@ -106,17 +139,48 @@ function runReverseAudit() {
       };
     });
     S.reverseAuditResults = verified;
-    var totalUnmatched = verified.reduce(function (n, v) { return n + v.unmatched.length; }, 0);
-    var totalSkipped = verified.reduce(function (n, v) { return n + v.skipped.length; }, 0);
-    var p = $("scan-progress");
-    p.classList.add("done");
-    p.innerHTML = "<b>Reverse audit · " + esc(S.scannedAt) + "</b><span class='scan-stats'>" +
-      verified.length + " verified table" + (verified.length === 1 ? "" : "s") + " · " +
-      totalUnmatched + " unmatched column" + (totalUnmatched === 1 ? "" : "s") +
-      (totalSkipped ? " · " + totalSkipped + " same-named table" + (totalSkipped === 1 ? "" : "s") + " skipped" : "") +
-      "</span>";
-    renderReverseAudit(verified);
+    return loadOrphanDependents(verified).then(function () { summariseReverseAudit(verified); });
   });
+}
+
+//==========// A clean org ends here with nothing to report, which is the result that
+//==========// says the sync is healthy. Anything listed is a column with no field
+//==========// behind it, so the count doubles as the count of suspects.
+function summariseReverseAudit(verified) {
+  var totalUnmatched = verified.reduce(function (n, v) { return n + v.unmatched.length; }, 0);
+  var totalSkipped = verified.reduce(function (n, v) { return n + v.skipped.length; }, 0);
+  var totalImpact = 0;
+  verified.forEach(function (v) {
+    v.unmatched.forEach(function (c) { if (c.dep) totalImpact += dependentCount(c.dep); });
+  });
+  var p = $("scan-progress");
+  p.classList.add("done");
+  p.innerHTML = "<b>Reverse audit · " + esc(S.scannedAt) + "</b><span class='scan-stats'>" +
+    verified.length + " verified table" + (verified.length === 1 ? "" : "s") + " · " +
+    totalUnmatched + " unmatched column" + (totalUnmatched === 1 ? "" : "s") +
+    (totalUnmatched ? " · " + totalImpact + " affected Analytics item" + (totalImpact === 1 ? "" : "s") : "") +
+    (totalSkipped ? " · " + totalSkipped + " same-named table" + (totalSkipped === 1 ? "" : "s") + " skipped" : "") +
+    "</span>";
+  renderReverseAudit(verified);
+}
+
+//==========// The whole point of the audit: this column has no field behind it, and
+//==========// this is what in Analytics goes down with it. Fixing is the user's call,
+//==========// so this only reports the blast radius.
+function orphanImpact(c, table) {
+  if (c.depError) {
+    return "<p class='section-note'>Could not read what depends on this column.</p>";
+  }
+  if (!c.dep) return "";
+  var total = dependentCount(c.dep);
+  if (!total) {
+    return "<p class='section-note'>Nothing else in Analytics is built on this column, " +
+      "so removing it costs only the column itself.</p>";
+  }
+  return "<p class='section-note'>" + total + qty(total, " Analytics item") +
+    (total === 1 ? " is" : " are") + " built on this column and " +
+    (total === 1 ? "breaks" : "break") + " with it:</p>" +
+    dependentCards(c.dep, table.wsName, table.wsId);
 }
 
 function renderReverseAudit(verified) {
@@ -128,6 +192,12 @@ function renderReverseAudit(verified) {
     return;
   }
   var html = "";
+  //==========// nothing found is the healthy answer, not an empty screen
+  if (!verified.some(function (v) { return v.unmatched.length; })) {
+    html += "<p class='section-note'>Every column in all " + verified.length +
+      " matched " + qty(verified.length, "table") + " has a CRM field behind it, " +
+      "so nothing here points at a broken sync.</p>";
+  }
   verified.forEach(function (v) {
     html += "<h3 class='usage-group'>" + esc(v.table.viewName) + " &rarr; " + esc(v.module.plural_label) +
       " <span class='gcount'>" + v.unmatched.length +
@@ -143,7 +213,8 @@ function renderReverseAudit(verified) {
     }
     html += v.unmatched.map(function (c) {
       return usageCard("Analytics table column" + (c.dataType ? " (" + c.dataType + ")" : ""),
-        c.columnName, v.table.wsName, viewLink(v.table.wsId, v.table.viewId), "");
+        c.columnName, v.table.wsName, viewLink(v.table.wsId, v.table.viewId), "") +
+        orphanImpact(c, v.table);
     }).join("");
   });
   box.innerHTML = html;
@@ -152,10 +223,12 @@ function renderReverseAudit(verified) {
 
 $("btn-reverse-audit-export").onclick = function () {
   if (!S.reverseAuditResults || !S.reverseAuditResults.length) return;
-  var rows = [["Analytics Table", "Workspace", "CRM Module", "Column", "Column Type"]];
+  var rows = [["Analytics Table", "Workspace", "CRM Module", "Column", "Column Type",
+    "Affected Analytics Items"]];
   S.reverseAuditResults.forEach(function (v) {
     v.unmatched.forEach(function (c) {
-      rows.push([v.table.viewName, v.table.wsName, v.module.plural_label, c.columnName, c.dataType || ""]);
+      rows.push([v.table.viewName, v.table.wsName, v.module.plural_label, c.columnName,
+        c.dataType || "", c.dep ? String(dependentCount(c.dep)) : ""]);
     });
   });
   if (rows.length === 1) return;

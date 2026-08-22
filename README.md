@@ -35,7 +35,7 @@ enable, the more confident the "safe to delete" verdict becomes.
 They are one toggle because function matching uses the automation data: a
 rule's action list is what ties a function to a module.
 
-**Reverse Analytics Audit** asks the opposite question: which columns exist in Analytics but have no matching CRM field? That surfaces orphans left behind by a renamed or deleted field, so it's where to start if your Analytics sync broke and you don't know why. It runs standalone and locks out the other sources while selected.
+**Reverse Analytics Audit** asks the opposite question: which columns exist in Analytics but have no matching CRM field? That is where to start when your Analytics sync has broken and you don't know which field caused it. For every column it finds with nothing behind it, it then reports what in Analytics is built on that column, so you can see what you stand to lose before touching anything. It runs standalone and locks out the other sources while selected.
 
 ## How confident is each result?
 
@@ -338,9 +338,13 @@ one you can.
 - **A large scan is slow, and that is Zoho's limit, not ours.** Analytics
   meters metadata at 60 calls a minute. The plan tells you the cost before
   you commit, and saving the result to a file means paying it once.
-- **The reverse audit is informational.** It reports Analytics columns with
-  no matching CRM field; it does not check whether those columns are still
-  used anywhere.
+- **The reverse audit finds, it does not fix.** It names the columns with
+  no CRM field behind them and what breaks with each, but recovering the
+  data or recreating the field is left to you.
+- **A field must exist to be checked.** Both directions read the CRM
+  settings endpoint with `type=all`, so fields sitting on no layout are
+  included. Dropping that parameter silently returns layout fields only,
+  which reads live fields as deleted and hides them from the field list.
 
 ## Competition deliverables (due Aug 24)
 

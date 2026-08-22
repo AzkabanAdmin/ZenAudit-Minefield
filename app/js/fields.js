@@ -20,13 +20,43 @@ function loadModules() {
   });
 }
 
+//==========// The one field list both directions trust.
+//==========//
+//==========// The SDK's getFields returns only fields sitting on a layout, so a field
+//==========// parked in the layout's Unused Items is invisible to it. That cuts both
+//==========// ways: the reverse audit read live fields as deleted and cried wolf over a
+//==========// healthy sync, and this list hid those fields from whoever wanted to check
+//==========// them, when a field on no layout is exactly the kind about to be deleted.
+//==========//
+//==========// type=all is what makes the difference and is easy to lose: the settings
+//==========// endpoint defaults to used fields only, which is the same blind spot in a
+//==========// different coat. Verified against a live org where dropping it put Website
+//==========// and Industry back on the orphan list while both fields still existed.
+function fetchModuleFields(apiName) {
+  if (S.moduleFieldsCache[apiName]) return Promise.resolve(S.moduleFieldsCache[apiName]);
+  return crmGet("/settings/fields?type=all&module=" + encodeURIComponent(apiName)).then(function (body) {
+    var fields = (body.fields || []).map(function (f) {
+      return {
+        api_name: f.api_name, label: f.field_label,
+        //==========// a relabelled field answers to three names and the Analytics sync
+        //==========// may use any of them: Title ships as field_label "Title" with
+        //==========// display_label and api_name "Designation"
+        display: f.display_label,
+        type: f.data_type, custom: !!f.custom_field,
+        //==========// "unused" here means off every layout, not deleted
+        offLayout: f.type === "unused"
+      };
+    });
+    S.moduleFieldsCache[apiName] = fields;
+    return fields;
+  });
+}
+
 function loadFields() {
   var mod = $("module-pick").value;
   if (!mod) return;
-  ZOHO.CRM.META.getFields({ Entity: mod }).then(function (resp) {
-    S.fields = (resp.fields || []).map(function (f) {
-      return { api_name: f.api_name, label: f.field_label, type: f.data_type, custom: !!f.custom_field };
-    });
+  fetchModuleFields(mod).then(function (fields) {
+    S.fields = fields;
     S.results = {};
     S.activeField = null;
     renderFieldList();

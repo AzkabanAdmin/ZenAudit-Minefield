@@ -330,8 +330,9 @@
          ******************************************************************** -->
     <div class="card hidden" id="reverse-audit-card">
       <h2><span class="step">2</span>Reverse Analytics Audit</h2>
-      <p class="section-note">Analytics tables matched by name to a CRM module, and which columns in each have no
-        matching CRM field. Informational: this doesn't check whether those columns are still used anywhere.</p>
+      <p class="section-note">For when your Analytics sync breaks and you don't know which field caused it. Matches
+        each synced table to its CRM module, finds columns with no CRM field behind them, then reports what in
+        Analytics is built on each one, so you know what you stand to lose before you touch anything.</p>
       <div class="setup-row">
         <button class="secondary hidden" id="btn-reverse-audit-export" title="Export unmatched columns as CSV">Export
           CSV</button>
