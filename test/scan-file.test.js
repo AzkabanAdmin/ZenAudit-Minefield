@@ -281,5 +281,24 @@ sandbox.maybeSuggestSave();
 check("a loaded scan gets no offer", el("save-nudge")._c.has("hidden"), true);
 
 
+/* **********************************************************************
+ *   A_Rescan_Discards_What_It_Must
+ *
+ *   Someone rescans precisely because they have just changed something in
+ *   CRM. Keeping the module field lists made a rebuilt field still read as
+ *   deleted until the page was reloaded, so the reverse audit went on
+ *   reporting a break that had already been fixed.
+ ********************************************************************** */
+
+S.depCache = { c1: { views: [], customFormulas: [], aggregateFormulas: [] } };
+S.moduleFieldsCache = { Leads: [{ api_name: "Website", label: "Website" }] };
+S.tables = [{ viewName: "from the previous run" }];
+
+sandbox.beginScan();
+
+check("a rescan drops the dependents it paid for", S.depCache, {});
+check("and the module field lists, so a rebuilt field is seen", S.moduleFieldsCache, {});
+check("and the tables it is about to replace", S.tables, []);
+
 console.log(failures ? "\n" + failures + " FAILURE(S)" : "\nALL SCAN FILE CHECKS PASSED");
 process.exit(failures ? 1 : 0);

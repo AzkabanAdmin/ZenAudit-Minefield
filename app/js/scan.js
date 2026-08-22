@@ -553,6 +553,11 @@ function beginScan() {
   //==========// the last scan would otherwise still read as nothing depending on
   //==========// the column. Use cached scan and Load scan from file keep them.
   S.depCache = {};
+  //==========// The field lists go too, and for a sharper reason: someone rescans
+  //==========// precisely because they have just changed something in CRM. Keeping
+  //==========// these made a rebuilt field still read as deleted until the page was
+  //==========// reloaded, so the audit reported a break that had already been fixed.
+  S.moduleFieldsCache = {};
 }
 
 function failScan(err) {

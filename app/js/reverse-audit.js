@@ -183,6 +183,30 @@ function orphanImpact(c, table) {
     dependentCards(c.dep, table.wsName, table.wsId);
 }
 
+//==========// Both routes out, in the order that loses least. Rebuilding the field
+//==========// is the one confirmed against a live org: the sync recovered and every
+//==========// dependent view survived untouched. Zoho's own advice is the second one,
+//==========// which works but throws away whatever those views were showing.
+//==========//
+//==========// Type is a hint rather than a rule here. Matching the name is what
+//==========// restores the sync; matching the type is what keeps formulas and query
+//==========// casts working, so the Analytics type is offered as the clue to aim at.
+function orphanFix(c, table, module) {
+  var field = "<b>" + esc(c.columnName) + "</b>";
+  var where = " on " + esc(module.plural_label) + " in CRM";
+  var type = c.dataType ? " It syncs as <b>" + esc(c.dataType) +
+    "</b>, so match the original field's type to keep formulas and queries working." : "";
+  if (c.dep && dependentCount(c.dep)) {
+    return "<p class='section-note'><b>To fix:</b> rebuild " + field + where +
+      " under the same name, then re-sync. That clears the sync failure and leaves " +
+      "everything above intact. Zoho's own advice is to delete or edit those items " +
+      "instead, which also works but loses what they showed." + type + "</p>";
+  }
+  return "<p class='section-note'><b>To fix:</b> rebuild " + field + where +
+    " under the same name and re-sync, or let the sync drop the column. Nothing is " +
+    "built on it, so dropping it costs only the column itself." + type + "</p>";
+}
+
 function renderReverseAudit(verified) {
   var box = $("reverse-audit-results");
   if (!verified.length) {
@@ -197,6 +221,12 @@ function renderReverseAudit(verified) {
     html += "<p class='section-note'>Every column in all " + verified.length +
       " matched " + qty(verified.length, "table") + " has a CRM field behind it, " +
       "so nothing here points at a broken sync.</p>";
+  } else {
+    //==========// the wording Analytics itself uses, so the two screens connect
+    html += "<p class='section-note'>If Analytics is refusing to sync with <i>one or " +
+      "more selected fields/modules are not synchronized from Zoho CRM</i>, the " +
+      "columns below are why. Each one needs either its CRM field back or its " +
+      "Analytics dependents cleared before the sync will run again.</p>";
   }
   verified.forEach(function (v) {
     html += "<h3 class='usage-group'>" + esc(v.table.viewName) + " &rarr; " + esc(v.module.plural_label) +
@@ -214,7 +244,7 @@ function renderReverseAudit(verified) {
     html += v.unmatched.map(function (c) {
       return usageCard("Analytics table column" + (c.dataType ? " (" + c.dataType + ")" : ""),
         c.columnName, v.table.wsName, viewLink(v.table.wsId, v.table.viewId), "") +
-        orphanImpact(c, v.table);
+        orphanImpact(c, v.table) + orphanFix(c, v.table, v.module);
     }).join("");
   });
   box.innerHTML = html;
