@@ -123,6 +123,11 @@ plan shows what a scan would cost, broken down by Analytics folder and by
 CRM source, sorted by what each one costs, with a bar per row and a running
 total. Unticking a row strikes it through and takes it off the total.
 
+The plan also follows the source toggles without re-listing. Turning a
+source off drops its section and its time from the total; turning one on
+after the listing was taken says so on the panel rather than quietly
+understating the cost, and **Re-check scan size** folds it in.
+
 The plan is cached per org, so reopening the tab shows the last listing
 instantly with the time it was taken, and **Re-check scan size** refreshes
 it. It also doubles as the connection check: nothing downstream of the
@@ -132,8 +137,9 @@ listed says so on its own row instead of failing the whole thing.
 
 Folders are the useful lever. A consolidated workspace mixes several apps,
 and for a CRM field audit most of those tables are noise. On our own
-testing org, unticking four Zoho Books folders took the run from about
-seven minutes to five, and the scan then read 141 tables instead of 269.
+testing org 126 of the 233 tables sit in Zoho Books folders that a CRM
+field audit never needs, so unticking those roughly halves the run: about
+four and a half minutes becomes about two.
 
 Zoho meters Analytics metadata at 60 calls a minute, so a big scan is
 genuinely slow. The widget says how long up front, shows the time
@@ -181,7 +187,7 @@ Time in some other app's table is coincidence rather than a dependency. A
 rescan deliberately discards saved dependents, since asking for a fresh
 scan means asking for fresh answers.
 
-**2. Fields.** Pick a module. Click any field to check it on demand, or **Check all fields** to badge the whole module at once. Filter chips (In use / Unused / Not in Analytics / Unchecked) carry live counts, and the search box filters by label or API name.
+**2. Fields.** Pick a module. Click any field to check it on demand, or **Check all fields** to badge the whole module at once. Filter chips (In use / Unused / not synced / Unchecked) carry live counts, and the search box filters by label or API name. The third chip reads **not in Analytics** until a scan has actually run, because until then the absence of a column says nothing. A field sitting on no layout is marked **off layout** in the list, since it is invisible in CRM and so the likeliest one to be deleted without a second thought.
 
 **3. Usage.** The detail panel shows every place the field is used, grouped by source, with code and SQL snippets where relevant and deep links into CRM and Analytics. **Export CSV** turns the whole module into a client-ready audit artifact. **Recheck this field** re-runs a single field against fresh data.
 
@@ -194,7 +200,7 @@ Three themes (dark by default, light, and zen) via the header dropdown, persiste
 | Link name | Scope | Needed for |
 |---|---|---|
 | `analytics` | `ZohoAnalytics.metadata.read` | Analytics + reverse audit |
-| `crm` | `ZohoCRM.settings.ALL` | Functions, reports, automations |
+| `crm` | `ZohoCRM.settings.ALL` | Field lists, functions, reports, automations |
 
 Two connections, that's the whole setup. `ZohoCRM.settings.ALL` is known working. If your scope picker offers them separately, the minimal set is `settings.functions.READ`, `settings.reports.READ`, `settings.automation_actions.READ`, `settings.workflow_rules.READ`, `settings.scoring_rules.READ`, `settings.blueprint.READ`, and `settings.connected_workflows.READ`. The broader `ZohoAnalytics.fullaccess.all` also works.
 
@@ -237,15 +243,18 @@ Every suite below is a plain Node script with no dependencies.
 | `transport.test.js` | The shapes `CONNECTION.invoke` returns: a normal JSON body, a 204 empty list, an error body, a missing response. |
 | `ratelimit.test.js` | The shared limiter, on a simulated clock: 269 calls stay under 60 a minute, a 6045 rejection is retried rather than lost, a non-rate-limit failure is not, and the time estimates. |
 | `cache-org.test.js` | A cached scan is only offered when it belongs to the org on screen, plus the folder gating the scan plan relies on. |
-| `scan-file.test.js` | Saving and loading a scan: a lossless round trip, every way a bad file is refused, the real `onchange` handler driven with a stubbed reader, and when saving is offered. |
+| `scan-file.test.js` | Saving and loading a scan: a lossless round trip, the file's key set pinned so the shape cannot drift unnoticed, proof that a loaded scan yields the identical verdict without re-buying dependents, every way a bad file is refused, the real `onchange` handler driven with a stubbed reader, and when saving is offered. |
 | `paging.test.js` | The shared paginator: multi-page collection, stopping on `more_records`, both query-separator forms, a missing response key. |
 | `deluge.test.js` | Deluge matching in detail, including a real standalone function from a live org kept verbatim as a fixture. |
+| `reverse-audit.test.js` | The reverse audit, with one named check per misfire it has produced against an org whose sync was healthy: a field off every layout, a read-only system lookup, a relabelled field reached by each of its three names, and the sync's own bookkeeping columns. Also that dependents are bought only for columns that really are orphaned, and that a healthy org reports nothing and spends nothing. |
 | `check-cost.test.js` | Counts the metered calls a field check makes against the real fixture, so the cost is measured rather than assumed, and asserts that queried plus unchecked accounts for every match. |
 | `real-data.test.js` | Matching against a real scan you supply: ours is 420 functions and 233 tables. Asserts properties rather than expected names, so refreshing the fixture does not invalidate it. No hit outside the set of functions that really mention the name; anchoring only ever removes hits; a full sweep stays fast. |
-| `verdicts.test.js` | A synthetic org where one field is used by seven sources, one is synced but unreferenced, and one is absent from Analytics, then the hit counts, categories, chips, detail sections and CSV rows. |
+| `verdicts.test.js` | A synthetic org where one field is used by seven sources, one is synced but unreferenced, one is absent from Analytics, and one shares its name with a column in another module's table, then the hit counts, categories, chips, detail sections and CSV rows. That last field guards a crash: rendering it used to throw and leave the pane stuck on "Checking dependencies". |
 
-`real-data.test.js` needs `test/fixtures/scan-cache.json`, which is **not
-in the repo** and skips cleanly when absent. A scan captures Deluge source
+`real-data.test.js` and `check-cost.test.js` need
+`test/fixtures/scan-cache.json`, which is **not in the repo** and skips
+cleanly when absent. `scan-file.test.js` uses it too when present, to prove
+a genuine older export still loads. A scan captures Deluge source
 verbatim, and function source in a real org routinely contains hardcoded
 credentials: the first time we tried to commit ours, GitHub's push
 protection caught a live Anthropic API key sitting in one of the functions.
@@ -264,7 +273,7 @@ No backend and no build step. Plain files loaded as ordered script tags sharing 
 
 Third-party dependencies, declared in full: **none in the application code**. The page loads Zoho's own Embedded App JS SDK and four Google Fonts (Raleway, Ubuntu, Quicksand, Karla) from their CDNs. `package.json` covers only the local zet dev server and ships nothing to the widget.
 
-- CRM module and field metadata comes from `ZOHO.CRM.META`, which runs as the logged-in user and needs no setup.
+- The module list comes from `ZOHO.CRM.META.getModules()`, which runs as the logged-in user and needs no setup. Field lists do not: they come through the `crm` Connection from `/settings/fields?type=all`, because the SDK's `getFields` returns only fields sitting on a layout and so cannot see a field parked in Unused Items (see Known limits).
 - Everything else goes through `ZOHO.CRM.CONNECTION.invoke()` against named Connections, so OAuth and CORS are handled server-side by CRM. Each org configures the Connections once, which is what keeps the widget portable to any environment.
 - The core insight: table view details expose each column's `columnId`, and Zoho's documented column-dependents endpoint returns every dependent view and formula directly, the same engine behind Analytics' own delete warnings. That makes Analytics results exact rather than scraped.
 
@@ -348,7 +357,13 @@ one you can.
 
 ## Competition deliverables (due Aug 24)
 
-- [ ] Deployed working widget in a live Zoho environment
-- [ ] Source code repo
-- [ ] Written summary: what it does, problem it solves, third-party libraries declared
-- [ ] Screen recording or live demo link
+- [x] **Source code repo.**
+- [x] **Written summary.** This README. Third-party dependencies are
+      declared in full under Architecture: none in the application code.
+- [x] **Running in a live Zoho environment.** Two, in fact: a small org and
+      the messy shared testing org, both as CRM web tabs.
+- [ ] **A build the judges can open themselves.** Needs `zet pack` and an
+      upload with Hosting set to Zoho and Index Page `/widget.html`, not
+      `/app/widget.html`. It runs today from the local zet dev server,
+      which is fine for us and no use to a judge.
+- [ ] **Screen recording.**

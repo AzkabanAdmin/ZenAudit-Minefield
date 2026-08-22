@@ -8,11 +8,11 @@
 //==========// own automation data, which is ground truth: a workflow field update
 //==========// names both the module and the field it writes.
 //==========//
-//==========// The fixture is a real scan of Zenatta's shared testing org, committed
-//==========// so the suite runs for anyone cloning the repo. To refresh it, run a
-//==========// scan and export the localStorage scan key to
-//==========// test/fixtures/scan-cache.json. The skip below keeps the suite honest
-//==========// if the file is ever absent.
+//==========// The fixture is a real scan of Zenatta's shared testing org and is
+//==========// deliberately NOT committed: a scan carries Deluge source verbatim, and
+//==========// ours held a live API key the first time we tried. So this suite skips
+//==========// unless someone supplies their own. To make one, run a scan, use Save
+//==========// scan to file, and drop it at test/fixtures/scan-cache.json.
 //==========// Run with: npm test
 
 const fs = require("fs");
