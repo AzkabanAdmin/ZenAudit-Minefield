@@ -138,6 +138,12 @@ function runReverseAudit() {
         skipped: entry.scored.slice(1).map(function (s) { return s.table; })
       };
     });
+    //==========// A broken sync is the only reason anyone opens this, so the tables
+    //==========// with something wrong go first, worst first. In an org with a hundred
+    //==========// synced tables the one finding would otherwise sit below a screenful
+    //==========// of clean ones. Sorted here rather than at render time so the CSV
+    //==========// export comes out in the same order.
+    verified.sort(function (a, b) { return b.unmatched.length - a.unmatched.length; });
     S.reverseAuditResults = verified;
     return loadOrphanDependents(verified).then(function () { summariseReverseAudit(verified); });
   });
@@ -259,9 +265,13 @@ function renderReverseAudit(verified) {
       "Analytics dependents cleared before the sync will run again.</p>";
   }
   verified.forEach(function (v) {
+    var n = v.unmatched.length;
+    //==========// the badge is green everywhere else in the widget, where a count is
+    //==========// just a count. Here a count above zero is the bad news, so it must
+    //==========// not read as a reassuring tick.
     html += "<h3 class='usage-group'>" + esc(v.table.viewName) + " &rarr; " + esc(v.module.plural_label) +
-      " <span class='gcount'>" + v.unmatched.length +
-      (v.unmatched.length === 1 ? " unmatched column" : " unmatched columns") + "</span></h3>";
+      " <span class='gcount" + (n ? " flagged" : "") + "'>" + n +
+      (n === 1 ? " unmatched column" : " unmatched columns") + "</span></h3>";
     if (v.skipped.length) {
       html += "<p class='section-note'>Also name-matched but scored lower on how many columns line up with " +
         esc(v.module.plural_label) + " fields, likely a different app's table with a similar name: " +
