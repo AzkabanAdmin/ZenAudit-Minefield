@@ -62,6 +62,9 @@ function loadWorkspaces() {
         lab.classList.toggle("on", cb.checked);
         updateScanButton();
         renderFolderList();
+        //==========// the plan is a table of this workspace's folders, so it has to
+        //==========// follow the pill above it
+        refreshPlanForToggles();
       };
       lab.appendChild(cb);
       lab.appendChild(document.createTextNode(w.workspaceName));
@@ -437,11 +440,21 @@ $("btn-plan").onclick = function () {
 
 //==========// seconds the current selection would cost, so the total tracks ticking
 //==========// a folder on or off without re-listing anything
+//==========// A plan row belongs to a workspace, and the workspace pills sit above the
+//==========// table and move independently of it. So a row can be listed and still not
+//==========// be part of the next scan. Unknown workspace means keep the row: the
+//==========// listing is the better evidence when the pill list has not loaded.
+function planWorkspaceOn(r) {
+  var ws = S.workspaces.filter(function (w) { return w.workspaceId === r.wsId; })[0];
+  return !ws || !!ws.selected;
+}
+
 function planSeconds() {
   if (!S.plan) return null;
   var secs = 0;
   if ($("include-an").checked) {
     S.plan.analytics.forEach(function (r) {
+      if (!planWorkspaceOn(r)) return;
       if (!r.folder || r.folder.selected) secs += estimateSeconds(r.tables, LIMITS.analytics);
     });
   }
@@ -481,6 +494,7 @@ function renderPlan() {
   //==========// bars are relative to the most expensive row that will actually run
   var peak = 0;
   if (wantAn) plan.analytics.forEach(function (r) {
+    if (!planWorkspaceOn(r)) return;
     peak = Math.max(peak, estimateSeconds(r.tables, LIMITS.analytics));
   });
   if (wantCrm) plan.crm.forEach(function (r) {
@@ -490,16 +504,24 @@ function renderPlan() {
   function share(secs) { return peak > 0 ? secs / peak : 0; }
 
   if (wantAn && plan.analytics.length) {
-    html += "<div class='plan-group'>Zoho Analytics tables</div>";
+    var analyticsRows = "";
     plan.analytics.forEach(function (r, i) {
+      //==========// A deselected workspace drops its rows outright rather than dimming
+      //==========// them the way an unticked folder does: the folder checkbox is in the
+      //==========// row and can be re-ticked there, but the workspace pill is somewhere
+      //==========// else, so a struck-through row with a dead checkbox would only puzzle.
+      //==========// i stays the array index, since data-plan-folder points into
+      //==========// S.plan.analytics and must survive rows being skipped.
+      if (!planWorkspaceOn(r)) return;
       var on = !r.folder || r.folder.selected;
       var box = r.folder
         ? "<input type='checkbox' data-plan-folder='" + i + "'" + (on ? " checked" : "") + ">"
         : "<span class='plan-fixed' title='no folder information, always scanned'>&bull;</span>";
       var secs = estimateSeconds(r.tables, LIMITS.analytics);
-      html += planRow(esc(r.folderName) + " <small>" + esc(r.wsName) + "</small>",
+      analyticsRows += planRow(esc(r.folderName) + " <small>" + esc(r.wsName) + "</small>",
         r.tables + " " + qty(r.tables, "table"), secs, box, on ? share(secs) : 0);
     });
+    if (analyticsRows) html += "<div class='plan-group'>Zoho Analytics tables</div>" + analyticsRows;
   }
 
   if (wantCrm && plan.crm.length) {
@@ -525,6 +547,12 @@ function renderPlan() {
   //==========// panel exists to get right.
   var unlisted = [];
   if (wantAn && !plan.analytics.length) unlisted.push("Zoho Analytics");
+  //==========// every workspace unticked is a choice, not an omission, so it reads
+  //==========// differently from a source that was never listed
+  if (wantAn && plan.analytics.length && !plan.analytics.some(planWorkspaceOn)) {
+    html += "<p class='section-note'>No Analytics workspace is selected, so no tables " +
+      "will be read. Tick one above to put them back.</p>";
+  }
   if (wantCrm && !plan.crm.length) unlisted.push("CRM functions and automations");
   if (wantReports && !plan.reports) unlisted.push("CRM reports");
   if (unlisted.length) {

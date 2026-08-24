@@ -123,10 +123,11 @@ plan shows what a scan would cost, broken down by Analytics folder and by
 CRM source, sorted by what each one costs, with a bar per row and a running
 total. Unticking a row strikes it through and takes it off the total.
 
-The plan also follows the source toggles without re-listing. Turning a
-source off drops its section and its time from the total; turning one on
-after the listing was taken says so on the panel rather than quietly
-understating the cost, and **Re-check scan size** folds it in.
+The plan follows the switches above it without re-listing. Turning a source
+off drops its section and its time from the total, and unticking a
+workspace pill drops that workspace's folders the same way. Turning a
+source on after the listing was taken says so on the panel rather than
+quietly understating the cost, and **Re-check scan size** folds it in.
 
 The plan is cached per org, so reopening the tab shows the last listing
 instantly with the time it was taken, and **Re-check scan size** refreshes

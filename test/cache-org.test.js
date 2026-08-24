@@ -130,5 +130,76 @@ check("an unrecognised folder id is still scanned", sandbox.folderAllowed("w1", 
 //==========// and a workspace we have no folder data for is never filtered
 check("a workspace with no folder data is unfiltered", sandbox.folderAllowed("w3", 1), true);
 
+/* **********************************************************************
+ *   Workspace_Pills_Drive_The_Plan
+ *
+ *   The pills sit above the plan table and were wired only to the scan
+ *   button, so unticking a workspace left its folders listed and still
+ *   counted in the total. The panel exists to say what a scan would cover,
+ *   which makes overstating it the one thing it must not do.
+ ********************************************************************** */
+
+el("include-an").checked = true;
+el("include-crm").checked = true;
+el("include-reports").checked = false;
+el("include-reverse-audit").checked = false;
+
+S.workspaces = [
+  { workspaceId: "w1", workspaceName: "Zoho One Workspace", selected: true },
+  { workspaceId: "w2", workspaceName: "Zoho Books Analytics", selected: true },
+];
+
+//==========// 60 tables in one workspace, 40 in the other, so the split is obvious
+S.plan = {
+  at: "some time",
+  analytics: [
+    //==========// folder is the live object the row is re-linked to after a restore,
+    //==========// and its presence is what puts a checkbox in the row
+    { wsId: "w1", wsName: "Zoho One Workspace", folderId: 10, folderName: "CRM Modules",
+      tables: 60, folder: { wsId: "w1", folderId: 10, selected: true } },
+    { wsId: "w2", wsName: "Zoho Books Analytics", folderId: 20, folderName: "Books",
+      tables: 40, folder: { wsId: "w2", folderId: 20, selected: true } },
+  ],
+  crm: [],
+  reports: null,
+};
+
+const bothOn = sandbox.planSeconds();
+check("both workspaces are counted to start with",
+  bothOn, sandbox.estimateSeconds(100, sandbox.LIMITS.analytics));
+
+sandbox.renderPlan();
+const bothHtml = el("plan-body").innerHTML;
+check("and both appear in the table", /Zoho Books Analytics/.test(bothHtml), true);
+
+//==========// untick the Books workspace, the way the pill does
+S.workspaces[1].selected = false;
+sandbox.renderPlan();
+
+check("the total drops to the workspaces still selected",
+  sandbox.planSeconds(), sandbox.estimateSeconds(60, sandbox.LIMITS.analytics));
+check("and it really did drop", sandbox.planSeconds() < bothOn, true);
+
+const oneHtml = el("plan-body").innerHTML;
+check("the deselected workspace's rows leave the table",
+  /Zoho Books Analytics/.test(oneHtml), false);
+check("the remaining workspace stays", /Zoho One Workspace/.test(oneHtml), true);
+
+//==========// the folder checkbox carries an index into S.plan.analytics, so skipping
+//==========// a row must not renumber the ones after it
+check("the surviving row still points at its own entry in the plan",
+  /data-plan-folder='0'/.test(oneHtml), true);
+
+//==========// with every workspace off there is nothing to read, and saying so beats
+//==========// an empty panel that looks like a bug
+S.workspaces[0].selected = false;
+sandbox.renderPlan();
+check("no workspace selected means no Analytics time", sandbox.planSeconds(), 0);
+check("and the panel says why rather than going blank",
+  /No Analytics workspace is selected/.test(el("plan-body").innerHTML), true);
+
+S.workspaces[0].selected = true;
+S.workspaces[1].selected = true;
+
 console.log(failures ? "\n" + failures + " FAILURE(S)" : "\nALL CACHE ORG CHECKS PASSED");
 process.exit(failures ? 1 : 0);
