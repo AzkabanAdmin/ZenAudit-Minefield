@@ -36,7 +36,7 @@ function loadOrgs() {
     //==========// Nothing downstream runs without this call, so a first run with
     //==========// no Connections set up lands here. Open the setup guide rather
     //==========// than leaving someone with only an error to go on.
-    $("guide").classList.remove("hidden");
+    setGuideOpen(true);
   });
 }
 $("org-pick").onchange = function () { loadWorkspaces(); };

@@ -122,7 +122,21 @@ $("btn-back-to-menu").onclick = function () {
   $("setup-card").classList.remove("collapsed");
   $("btn-toggle-setup").textContent = "Hide settings";
 };
-$("btn-guide").onclick = function () { $("guide").classList.toggle("hidden"); };
+//==========// The guide sits under the three setup columns, so on a tall card it can
+//==========// open below the fold and read as a dead button. The label says which way
+//==========// the click will go, and opening scrolls to it. loadOrgs opens it too, on a
+//==========// first run with no Connections, so both routes go through here and the
+//==========// label can never disagree with the panel.
+function setGuideOpen(open) {
+  $("guide").classList.toggle("hidden", !open);
+  $("btn-guide").textContent = open ? "hide setup guide" : "connection setup guide";
+}
+
+$("btn-guide").onclick = function () {
+  var opening = $("guide").classList.contains("hidden");
+  setGuideOpen(opening);
+  if (opening && $("guide").scrollIntoView) $("guide").scrollIntoView({ block: "nearest" });
+};
 /* **********************************************************************
  *   Copying_A_Scope
  *

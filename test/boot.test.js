@@ -128,5 +128,64 @@ if (missing.length) {
     sandbox.SCANS.length + " scans, " + sandbox.CRM_SCANS.length + " CRM sub-scans)");
 }
 
+//==========// Every button wired at load time must actually reach its target. The
+//==========// setup guide button shipped pointing at a panel that lived below the whole
+//==========// scan plan, so it opened off-screen and read as dead: the handler was fine,
+//==========// nothing was checking that a click changed anything a user could see.
+const wired = [];
+for (const id of ["btn-guide", "btn-scan", "btn-plan", "btn-check-all", "btn-export-scan",
+  "btn-import-scan", "btn-cache", "btn-toggle-setup", "btn-reverse-audit-export"]) {
+  if (typeof $el(id).onclick !== "function") wired.push(id);
+}
+if (wired.length) {
+  failures++;
+  console.log("FAIL buttons with no click handler: " + wired.join(", "));
+} else {
+  console.log("PASS every setup button has a click handler");
+}
+
+//==========// The real fault was placement, not wiring: the guide sat after the scan
+//==========// plan, which on a real org is a dozen folder rows tall, so it opened well
+//==========// below the fold. It has to come between the button that opens it and the
+//==========// plan, and stay inside the setup card so collapsing still hides it.
+const posButton = html.indexOf('id="btn-guide"');
+const posGuide = html.indexOf('id="guide"');
+const posPlan = html.indexOf('id="plan"');
+const posCardEnd = html.indexOf('id="save-nudge"');
+if (!(posButton < posGuide && posGuide < posPlan && posPlan < posCardEnd)) {
+  failures++;
+  console.log("FAIL the setup guide is not between its button and the scan plan " +
+    "(button=" + posButton + ", guide=" + posGuide + ", plan=" + posPlan + ")");
+} else {
+  console.log("PASS the setup guide sits under its own button, above the scan plan");
+}
+
+//==========// and the guide toggle in particular, both ways
+$el("guide")._classes.add("hidden");
+$el("btn-guide").onclick();
+const opened = !$el("guide")._classes.has("hidden");
+const labelWhenOpen = $el("btn-guide").textContent;
+$el("btn-guide").onclick();
+const closed = $el("guide")._classes.has("hidden");
+
+if (!opened || !closed) {
+  failures++;
+  console.log("FAIL the setup guide does not toggle (opened=" + opened + ", closed=" + closed + ")");
+} else if (labelWhenOpen === $el("btn-guide").textContent) {
+  failures++;
+  console.log("FAIL the guide button reads the same open and closed: " + labelWhenOpen);
+} else {
+  console.log("PASS the setup guide toggles and the button says which way");
+}
+
+//==========// the error path opens it through the same function, so the label agrees
+sandbox.setGuideOpen(true);
+if ($el("guide")._classes.has("hidden") || $el("btn-guide").textContent !== labelWhenOpen) {
+  failures++;
+  console.log("FAIL opening the guide from the error path disagrees with the button");
+} else {
+  console.log("PASS the first-run error path opens it consistently");
+}
+
 console.log(failures ? "\n" + failures + " FAILURE(S)" : "\nALL BOOT CHECKS PASSED");
 process.exit(failures ? 1 : 0);

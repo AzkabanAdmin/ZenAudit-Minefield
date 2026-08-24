@@ -251,20 +251,6 @@
           <div class="progress" id="scan-progress"></div>
         </div>
       </div>
-      <!-- ********************************************************************
-           Scan_Plan
-           ******************************************************************** -->
-      <div class="plan hidden" id="plan">
-        <div class="plan-head">
-          <b>What a scan would cover</b>
-          <span class="plan-when" id="plan-when"></span>
-          <span class="plan-total" id="plan-total"></span>
-        </div>
-        <p class="section-note">Listing costs a few seconds. Untick anything you do not need,
-          then Scan. Analytics tables are the slow part, since Zoho meters them at 60 a minute.</p>
-        <div id="plan-body"></div>
-      </div>
-
       <div class="guide hidden" id="guide">
         <b>One-time setup</b>. In CRM go to Setup &gt; Developer Space &gt; Connections &gt; Create Connection,
         pick the <b>Zoho OAuth</b> service, then:
@@ -283,6 +269,20 @@
           <li>Reload this tab. Different link names are fine, just enter them above. Click any scope here to copy it.
           </li>
         </ol>
+      </div>
+
+      <!-- ********************************************************************
+           Scan_Plan
+           ******************************************************************** -->
+      <div class="plan hidden" id="plan">
+        <div class="plan-head">
+          <b>What a scan would cover</b>
+          <span class="plan-when" id="plan-when"></span>
+          <span class="plan-total" id="plan-total"></span>
+        </div>
+        <p class="section-note">Listing costs a few seconds. Untick anything you do not need,
+          then Scan. Analytics tables are the slow part, since Zoho meters them at 60 a minute.</p>
+        <div id="plan-body"></div>
       </div>
       <div class="error hidden" id="setup-error"></div>
     </div>
