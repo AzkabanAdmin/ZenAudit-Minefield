@@ -10,3 +10,4 @@ Thumbs.db
 # credentials, so this never goes into git. See the Tests section of
 # the README for how to produce your own.
 test/fixtures/scan-cache.json
+Video Assets/
