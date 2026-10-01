@@ -654,7 +654,9 @@ function runReverseAuditScan() {
   var targets = selectedWorkspaces();
   if (!targets.length) { showError("Select at least one workspace."); return; }
   beginScan();
-  scanAnalytics(targets, true).then(function () {
+  refreshModules().then(function () {
+    return scanAnalytics(targets, true);
+  }).then(function () {
     S.scannedAt = new Date().toLocaleString();
     return runReverseAudit();
   }).then(function () {

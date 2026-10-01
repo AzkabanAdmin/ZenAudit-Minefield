@@ -70,7 +70,13 @@ var S = {
   //==========// module api_name -> field list from the CRM settings endpoint, shared
   //==========// by the forward check and the reverse audit. See fetchModuleFields.
   moduleFieldsCache: {},
-  reverseAuditResults: []  // [{table, module, unmatched}], see reverse-audit.js
+  //==========// every API module, linking modules included, for the reverse audit's
+  //==========// table matching. S.modules leaves linking modules out for the picker.
+  reverseModules: [],
+  reverseAuditResults: [],  // [{table, module, unmatched, skipped}], see reverse-audit.js
+  //==========// tables the reverse audit matched to a module but could not stand
+  //==========// behind: [{table, module, columns, total, reason}]. Never saved.
+  reverseAuditUnverified: []
 };
 var SCAN_KEY = "fieldcheck.scan.v3";
 //==========// the plan is cached separately: it is cheap to rebuild but slow enough

@@ -4,11 +4,23 @@
  *   Field_Loading
  ********************************************************************** */
 
+function auditableModules(resp) {
+  return syncedModules(resp).filter(function (m) { return m.generated_type !== "linking"; });
+}
+
+//==========// The reverse audit needs linking modules too. A multi-select lookup
+//==========// creates one ("Contractor Bids" is LinkingModule1 underneath), Analytics
+//==========// syncs it like any other, and without it in the list its table was
+//==========// name-matched to Contractors and every one of its fields read as deleted.
+//==========// The field picker keeps leaving them out, as it always has.
+function syncedModules(resp) {
+  return ((resp && resp.modules) || []).filter(function (m) { return m.api_supported; });
+}
+
 function loadModules() {
   ZOHO.CRM.META.getModules().then(function (resp) {
-    S.modules = (resp.modules || []).filter(function (m) {
-      return m.api_supported && m.generated_type !== "linking";
-    });
+    S.modules = auditableModules(resp);
+    S.reverseModules = syncedModules(resp);
     var pick = $("module-pick");
     pick.innerHTML = "";
     S.modules.forEach(function (m) {
@@ -18,6 +30,24 @@ function loadModules() {
     });
     pick.onchange = loadFields;
   });
+}
+
+//==========// The module list is read once when the tab opens, so a module created
+//==========// since is missing from it, and the reverse audit would then match its
+//==========// table to whichever older module its name happens to contain. Re-read
+//==========// it before each audit. The picker is left alone, and any failure or a
+//==========// slow answer keeps the list already held, so this can only add accuracy.
+var MODULE_REFRESH_MS = 8000;
+
+function refreshModules() {
+  if (!ZOHO.CRM.META || typeof ZOHO.CRM.META.getModules !== "function") return Promise.resolve();
+  var read = Promise.resolve().then(function () { return ZOHO.CRM.META.getModules(); }).then(function (resp) {
+    var fresh = auditableModules(resp);
+    if (fresh.length) S.modules = fresh;
+    var synced = syncedModules(resp);
+    if (synced.length) S.reverseModules = synced;
+  }).catch(function () { /* keep the list already held */ });
+  return Promise.race([read, wait(MODULE_REFRESH_MS)]);
 }
 
 //==========// The one field list both directions trust.
@@ -47,7 +77,9 @@ function fetchModuleFields(apiName) {
         offLayout: f.type === "unused"
       };
     });
-    S.moduleFieldsCache[apiName] = fields;
+    //==========// a real module always has fields, so an empty list is a read that
+    //==========// went wrong and is worth asking again, not an answer to keep
+    if (fields.length) S.moduleFieldsCache[apiName] = fields;
     return fields;
   });
 }

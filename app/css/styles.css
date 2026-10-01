@@ -303,6 +303,10 @@ body.dark .usage-group .gcount { background: var(--zen-mint); color: #04140d; }
 .usage-group .gcount.flagged { background: #B42318; color: #fff; }
 body.dark .usage-group .gcount.flagged { background: #FCA5A5; color: #450A0A; }
 body.zen .usage-group .gcount.flagged { background: #9C4A34; color: #FFF8EC; }
+/* neither a tick nor an alarm: the audit could not say either way */
+.usage-group .gcount.unverified { background: #5F6B66; color: #fff; }
+body.dark .usage-group .gcount.unverified { background: #C4CCC8; color: #1A2420; }
+body.zen .usage-group .gcount.unverified { background: #7A6F5E; color: #FFF8EC; }
 .hidden { display: none; }
 /* **********************************************************************
  *   Collapsed_Setup_Card

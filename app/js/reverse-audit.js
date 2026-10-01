@@ -19,21 +19,36 @@
  *   hunting a break that never happened. Every column reported has
  *   survived a field list that includes fields on no layout, all three
  *   names a relabelled field answers to, and the sync's own bookkeeping
- *   columns. See test/reverse-audit.test.js, which pins each of those.
+ *   columns, Activities' included. A table where nothing lines up at all
+ *   is reported as unverifiable rather than as wholesale deletion. See
+ *   test/reverse-audit.test.js, which pins each of those.
  *
  *   Read-only: it never touches S.results, checkField, or any verdict.
  */
 
 //==========// A table is only a verified CRM data table if its name maps to exactly
 //==========// one module. Ambiguous or unmatched tables are skipped, not guessed at.
+//==========//
+//==========// The connector names a table "<Module> (Zoho CRM)", so that suffix is
+//==========// dropped before the exact comparison. Without it "Contractor Bids (Zoho
+//==========// CRM)" fell through to the loose pass, where "Contractor" also fits.
+function reverseModuleList() {
+  return (S.reverseModules && S.reverseModules.length) ? S.reverseModules : S.modules;
+}
+
 function matchModuleForTable(table) {
+  var modules = reverseModuleList();
   var tNorm = norm(table.viewName);
-  var exact = S.modules.filter(function (m) {
-    return norm(m.plural_label) === tNorm || norm(m.singular_label) === tNorm || norm(m.api_name) === tNorm;
+  var bare = tNorm.replace(/_zoho_crm$/, "");
+  var exact = modules.filter(function (m) {
+    return [m.plural_label, m.singular_label, m.api_name].some(function (n) {
+      var k = norm(n);
+      return !!k && (k === tNorm || k === bare);
+    });
   });
   if (exact.length === 1) return exact[0];
   if (exact.length > 1) return null;
-  var contains = S.modules.filter(function (m) {
+  var contains = modules.filter(function (m) {
     return tNorm.indexOf(norm(m.plural_label)) >= 0 || tNorm.indexOf(norm(m.singular_label)) >= 0;
   });
   return contains.length === 1 ? contains[0] : null;
@@ -57,8 +72,12 @@ function isFormulaColumn(c) {
 //==========// contain. "Id" and "<Module> Owner Name" are its own keys. The conversion
 //==========// columns come from the $converted and $converted_detail record properties
 //==========// rather than from the module's fields, so they are not fields at all.
+//==========// SEMODULE is the same kind of thing in Calls, Tasks and Meetings: the
+//==========// $se_module record property naming which module "Related To" points
+//==========// at. It is in every Activities table and can never be deleted.
 var SYNC_OWNED_COLUMNS = {
-  id: 1, is_converted: 1, converted_date_time: 1, converted_from_lead: 1
+  id: 1, is_converted: 1, converted_date_time: 1, converted_from_lead: 1,
+  semodule: 1, se_module: 1
 };
 
 function isAlwaysIgnoredColumn(c) {
@@ -66,19 +85,77 @@ function isAlwaysIgnoredColumn(c) {
   return !!SYNC_OWNED_COLUMNS[n] || /_owner_name$/.test(n);
 }
 
-function auditableColumns(table) {
-  return table.columns.filter(function (c) { return !isFormulaColumn(c) && !isAlwaysIgnoredColumn(c); });
+//==========// An activity's "Related To" can point at a record in any module, and the
+//==========// sync spreads it out into one id column per parent module: Account ID,
+//==========// Contact ID, Deal ID, and the same for custom modules. None of them is a
+//==========// field, so none can be deleted. Only Activities get this pass, and only
+//==========// for a name that really is some module's name plus "id", so a deleted
+//==========// custom "Gate ID" in Meetings, or an "Account ID" in Leads, still shows.
+var ACTIVITY_MODULES = { Events: 1, Calls: 1, Tasks: 1 };
+
+function isActivityParentIdColumn(c, module) {
+  if (!module || !ACTIVITY_MODULES[module.api_name]) return false;
+  var m = /^(.+?)_?id$/.exec(norm(c.columnName));
+  if (!m) return false;
+  return S.modules.some(function (mod) {
+    return [mod.singular_label, mod.plural_label, mod.api_name].some(function (n) {
+      return !!norm(n) && norm(n) === m[1];
+    });
+  });
 }
 
-function unmatchedColumns(table, fields) {
+//==========// module is optional; without it only the module-blind rules apply
+function auditableColumns(table, module) {
+  return table.columns.filter(function (c) {
+    return !isFormulaColumn(c) && !isAlwaysIgnoredColumn(c) && !isActivityParentIdColumn(c, module);
+  });
+}
+
+//==========// The sync adds one "<owner label> Name" column per module, named after
+//==========// whatever the owner field is called. The _owner_name rule above only
+//==========// catches the default label, and Meetings calls its owner "Host", so its
+//==========// column is "Host Name". Read off the field list, a relabelled owner is
+//==========// covered too. Other lookups get no such column, so they get no pass.
+function ownerCompanionKeys(f) {
+  if (f.type !== "ownerlookup" && f.api_name !== "Owner") return [];
+  return [f.label, f.display].map(function (n) { return norm(n) ? norm(n) + "_name" : ""; });
+}
+
+//==========// every name a field can arrive under in Analytics
+function fieldKeys(fields) {
   var wanted = {};
   fields.forEach(function (f) {
-    [f.label, f.display, f.api_name].forEach(function (n) {
+    [f.label, f.display, f.api_name].concat(ownerCompanionKeys(f)).forEach(function (n) {
       var k = norm(n);
       if (k) wanted[k] = 1;
     });
   });
-  return auditableColumns(table).filter(function (c) { return !wanted[norm(c.columnName)]; });
+  return wanted;
+}
+
+function unmatchedColumns(table, fields, module) {
+  var wanted = fieldKeys(fields);
+  return auditableColumns(table, module).filter(function (c) { return !wanted[norm(c.columnName)]; });
+}
+
+//==========// Standard fields every module carries, so a column matching one of them
+//==========// proves nothing about which module a table belongs to. Keyed by api_name.
+//==========// The email trio is in every new custom module by default, which is how a
+//==========// "Contractor Bids" table once matched the Contractors module on Email.
+var SHARED_SYSTEM_FIELDS = {
+  Created_Time: 1, Modified_Time: 1, Created_By: 1, Modified_By: 1, Owner: 1, Tag: 1,
+  Last_Activity_Time: 1, Layout: 1, Record_Image: 1, Currency: 1, Exchange_Rate: 1,
+  Locked__s: 1, Record_Status__s: 1, Unsubscribed_Mode: 1, Unsubscribed_Time: 1,
+  Email: 1, Secondary_Email: 1, Email_Opt_Out: 1
+};
+
+//==========// How many columns match a field that belongs to this module in particular.
+//==========// Every module has a primary field that cannot be deleted (Last Name,
+//==========// Subject, "<Module> Name"), so a table that really is this module's
+//==========// sync always scores at least one.
+function moduleSpecificMatches(table, fields, module) {
+  var specific = fieldKeys(fields.filter(function (f) { return !SHARED_SYSTEM_FIELDS[f.api_name]; }));
+  return auditableColumns(table, module).filter(function (c) { return specific[norm(c.columnName)]; }).length;
 }
 
 //==========// Only now, on the few columns that really have nothing behind them, is it
@@ -99,6 +176,31 @@ function loadOrphanDependents(verified) {
   });
 }
 
+//==========// Every real synced table matches at least one live field, because Created
+//==========// Time and Modified Time cannot be deleted. So a table that matches nothing
+//==========// says the field list could not be read, or the name match landed on the
+//==========// wrong module, never that every field was deleted. Reporting all of its
+//==========// columns as orphans is exactly the false alarm this audit must not raise,
+//==========// so it is shown as unverifiable instead. A table with no auditable columns
+//==========// has nothing to flag either way and is left as it was.
+//==========//
+//==========// Matching only the fields every module shares is no better: it is the
+//==========// shape of a table name-matched to the wrong module, such as a new
+//==========// "Contractor Bids" read as "Contractors", where Created Time lines up and
+//==========// every real Contractor Bids field reads as deleted. So the evidence has
+//==========// to be a field that belongs to this module in particular.
+function canVerify(entry, scored) {
+  if (!entry.fieldCount) return false;
+  return !(scored.total > 0 && scored.specificCount === 0);
+}
+
+function unverifiedReason(entry, scored) {
+  var mod = entry.module.plural_label;
+  if (!entry.fieldCount) return "CRM returned no fields for " + mod;
+  if (!scored.matchedCount) return "none of its columns match a " + mod + " field";
+  return "only fields every module has line up, nothing specific to " + mod;
+}
+
 //==========// Names alone are not a reliable disambiguator: one workspace can hold
 //==========// both "Accounts" and "Accounts (Zoho CRM)". So candidates are grouped
 //==========// by module, then scored on how many columns actually line up with that
@@ -115,29 +217,50 @@ function runReverseAudit() {
   var moduleEntries = Object.keys(byModule).map(function (k) { return byModule[k]; });
   if (!moduleEntries.length) {
     S.reverseAuditResults = [];
+    S.reverseAuditUnverified = [];
     renderReverseAudit([]);
     return Promise.resolve();
   }
   return runQueue(moduleEntries, function (entry) {
-    return getModuleFields(entry.module).then(function (fields) {
+    //==========// one module CRM will not describe (a linking module, a missing
+    //==========// scope) is shown as unverifiable rather than ending the whole audit
+    return getModuleFields(entry.module).catch(function () { return []; }).then(function (fields) {
+      entry.fieldCount = fields.length;
       entry.scored = entry.candidates.map(function (t) {
-        var unmatched = unmatchedColumns(t, fields);
-        var total = auditableColumns(t).length;
+        var unmatched = unmatchedColumns(t, fields, entry.module);
+        var total = auditableColumns(t, entry.module).length;
         var matchedCount = total - unmatched.length;
-        return { table: t, unmatched: unmatched, matchRatio: total ? matchedCount / total : 0 };
+        return { table: t, unmatched: unmatched, total: total, matchedCount: matchedCount,
+                 specificCount: moduleSpecificMatches(t, fields, entry.module),
+                 matchRatio: total ? matchedCount / total : 0 };
       }).sort(function (a, b) { return b.matchRatio - a.matchRatio; });
     });
   }, function (i, n, entry) {
     $("scan-progress").innerHTML = "Matching module fields <b>" + i + " / " + n + "</b> - " + esc(entry.module.plural_label);
     showLoader("Matching module fields " + i + " / " + n, n ? i / n : null);
   }).then(function () {
-    var verified = moduleEntries.map(function (entry) {
-      var best = entry.scored[0];
-      return {
+    var verified = [], unverified = [];
+    moduleEntries.forEach(function (entry) {
+      var usable = [];
+      //==========// every table that cannot be stood behind is listed, not just the
+      //==========// first, so a second same-named table is never silently dropped
+      entry.scored.forEach(function (s) {
+        if (canVerify(entry, s)) { usable.push(s); return; }
+        unverified.push({
+          table: s.table, module: entry.module, columns: s.unmatched, total: s.total,
+          matched: s.matchedCount, reason: unverifiedReason(entry, s)
+        });
+      });
+      if (!usable.length) return;
+      //==========// still sorted by match ratio, so this is the same pick as before
+      //==========// whenever every candidate is usable
+      var best = usable[0];
+      verified.push({
         table: best.table, module: entry.module, unmatched: best.unmatched,
-        skipped: entry.scored.slice(1).map(function (s) { return s.table; })
-      };
+        skipped: usable.slice(1).map(function (s) { return s.table; })
+      });
     });
+    S.reverseAuditUnverified = unverified;
     //==========// A broken sync is the only reason anyone opens this, so the tables
     //==========// with something wrong go first, worst first. In an org with a hundred
     //==========// synced tables the one finding would otherwise sit below a screenful
@@ -145,14 +268,15 @@ function runReverseAudit() {
     //==========// export comes out in the same order.
     verified.sort(function (a, b) { return b.unmatched.length - a.unmatched.length; });
     S.reverseAuditResults = verified;
-    return loadOrphanDependents(verified).then(function () { summariseReverseAudit(verified); });
+    return loadOrphanDependents(verified).then(function () { summariseReverseAudit(verified, unverified); });
   });
 }
 
 //==========// A clean org ends here with nothing to report, which is the result that
 //==========// says the sync is healthy. Anything listed is a column with no field
 //==========// behind it, so the count doubles as the count of suspects.
-function summariseReverseAudit(verified) {
+function summariseReverseAudit(verified, unverified) {
+  unverified = unverified || [];
   var totalUnmatched = verified.reduce(function (n, v) { return n + v.unmatched.length; }, 0);
   var totalSkipped = verified.reduce(function (n, v) { return n + v.skipped.length; }, 0);
   var totalImpact = 0;
@@ -166,8 +290,10 @@ function summariseReverseAudit(verified) {
     totalUnmatched + " unmatched column" + (totalUnmatched === 1 ? "" : "s") +
     (totalUnmatched ? " · " + totalImpact + " affected Analytics item" + (totalImpact === 1 ? "" : "s") : "") +
     (totalSkipped ? " · " + totalSkipped + " same-named table" + (totalSkipped === 1 ? "" : "s") + " skipped" : "") +
+    (unverified.length ? " · " + unverified.length + " table" + (unverified.length === 1 ? "" : "s") +
+      " could not be verified" : "") +
     "</span>";
-  renderReverseAudit(verified);
+  renderReverseAudit(verified, unverified);
 }
 
 //==========// The whole point of the audit: this column has no field behind it, and
@@ -243,10 +369,35 @@ function orphanFix(c, table, module) {
 }
 
 
-function renderReverseAudit(verified) {
+//==========// Tables the audit could not stand behind, listed rather than dropped so
+//==========// nobody mistakes silence for a clean bill. Deliberately no rebuild advice:
+//==========// nothing here is known to be missing.
+function unverifiedSection(unverified) {
+  if (!unverified.length) return "";
+  var html = "<h3 class='usage-group'>Could not verify</h3>" +
+    "<p class='section-note'>These tables were not checked, because none of their columns " +
+    "line up with a field that belongs to the module they were matched to. A real sync always " +
+    "carries the module's own name field, which cannot be deleted, so this means the field list " +
+    "could not be read or the table belongs to a different module, not that its fields were " +
+    "deleted. Reload the widget if the module is new, and check the CRM connection user can " +
+    "see it.</p>";
+  unverified.forEach(function (u) {
+    html += "<h3 class='usage-group'>" + esc(u.table.viewName) + " &rarr; " + esc(u.module.plural_label) +
+      " <span class='gcount unverified'>not verified</span></h3>" +
+      "<p class='section-note'>" + esc(u.reason) +
+      (u.total ? ": " + (u.matched || 0) + " of " + u.total + qty(u.total, " column") + " match" : "") +
+      (u.columns.length ? " (" + u.columns.map(function (c) { return esc(c.columnName); }).join(", ") + ")" : "") +
+      ".</p>";
+  });
+  return html;
+}
+
+function renderReverseAudit(verified, unverified) {
+  unverified = unverified || [];
   var box = $("reverse-audit-results");
   if (!verified.length) {
-    box.innerHTML = "<p class='section-note'>No scanned Analytics table's name matched a CRM module, " +
+    box.innerHTML = unverified.length ? unverifiedSection(unverified) :
+      "<p class='section-note'>No scanned Analytics table's name matched a CRM module, " +
       "so there's nothing to audit. Make sure the Analytics workspace with your CRM-synced tables was included.</p>";
     $("btn-reverse-audit-export").classList.add("hidden");
     return;
@@ -257,6 +408,11 @@ function renderReverseAudit(verified) {
     html += "<p class='section-note'>Every column in all " + verified.length +
       " matched " + qty(verified.length, "table") + " has a CRM field behind it, " +
       "so nothing here points at a broken sync.</p>";
+    if (unverified.length) {
+      html += "<p class='section-note'>" + unverified.length + qty(unverified.length, " table") +
+        " at the bottom could not be checked, so this does not cover " +
+        (unverified.length === 1 ? "it" : "them") + ".</p>";
+    }
   } else {
     //==========// the wording Analytics itself uses, so the two screens connect
     html += "<p class='section-note'>If Analytics is refusing to sync with <i>one or " +
@@ -287,7 +443,7 @@ function renderReverseAudit(verified) {
         orphanImpact(c, v.table) + orphanFix(c, v.table, v.module);
     }).join("");
   });
-  box.innerHTML = html;
+  box.innerHTML = html + unverifiedSection(unverified);
   $("btn-reverse-audit-export").classList.remove("hidden");
 }
 
